@@ -34,13 +34,15 @@ PWM Lpwm(PIN_L_PWM,25000,10);          // 1kHz, 10-bit
 PWM Rpwm(PIN_R_PWM,25000,10);          // 1kHz, 10-bit
 ///////////////////////////////////
 
-// assign for input 
-IO home(PIN_SEN_HOME,IO_INPUT,ACTIVE_LOW);
-IO end(PIN_SEN_TERMINAL,IO_INPUT,ACTIVE_LOW);
-IO outdoor(PIN_SW_OUTDOOR,IO_INPUT,ACTIVE_LOW);
-IO indoor(PIN_SW_INDOOR,IO_INPUT,ACTIVE_LOW);
+//=====assign for input=========================
+IO home(PIN_SEN_HOME,IO_INPUT_PULLUP,ACTIVE_HIGH);
+IO end(PIN_SEN_TERMINAL,IO_INPUT_PULLUP,ACTIVE_HIGH);
+IO indoor(PIN_SW_INDOOR,IO_INPUT_PULLUP,ACTIVE_LOW);
 
-// input assignment
+IO outdoor(PIN_SW_OUTDOOR,IO_INPUT_PULLUP,ACTIVE_LOW);
+
+
+// input assignment  
 IO en(PIN_EN,IO_OUTPUT,ACTIVE_HIGH);
 
 IO calling_Bell(PIN_CALLING_BELL,IO_OUTPUT,ACTIVE_LOW);
@@ -51,7 +53,7 @@ IO calling_Bell(PIN_CALLING_BELL,IO_OUTPUT,ACTIVE_LOW);
 
 IO fault(PIN_LED_FAULT,IO_OUTPUT,ACTIVE_LOW);
 IO dir(PIN_RE_DE,IO_OUTPUT,ACTIVE_LOW);
-IO bzr_gt(PIN_BZR,IO_OUTPUT,ACTIVE_LOW);
+extern Buzzer bz(PIN_BZR,ACTIVE_LOW);
 ////////////////////////////////
 
 
@@ -63,18 +65,206 @@ void Autonomous_Gate::PRJ_Autonomous_Gate_SetUp()
     dbg.begin(Serial1, 115200, 4);
     dbg.println("system started..");
     /////////////////////////////////
-
+    bz.begin();
     en.begin(); 
     en.on();
 
     Lpwm.begin();
     Lpwm.setDuty(30);
+    Lpwm.disable();
 
     Rpwm.begin();
     Rpwm.setDuty(30);
+    Rpwm.disable();
 
+    gate.FSM = FSM_init;
+    home.begin();
+    end.begin();
+    bz.begin();
+    bz.beep();
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::PRJ_Autonomous_Gate_Loop()
+{
+    st.blink();
+    FSM_Handler();
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::FSM_Handler()
+{
+    switch (gate.FSM)
+    {
+    case FSM_init:
+         if (Go_Home())
+         {
+             gate.FSM = FSM_Read_Indoor_switch;
+         }
+        break;
+    ////////////////////////////////////////////
+    case FSM_Read_Indoor_switch:
+         if (indoor.steady_read() == true)
+         {
+             dbg.println("Indoor switch pressed");
+             Motor_Rotate_Towards_Terminal(Speed_JoG);
+             delay(3000);
+             Motor_Rotate_Towards_Terminal(30);
+             delay(1000);
+             Motor_Rotate_Towards_Terminal(Speed_JoG);
+             delay(3000);
+             gate.FSM = FSM_Door_Opening;
+         }
+         else
+         {
+             dbg.println("Indoor switch not pressed:",gate.loop_counter++);
+             delay(1000);
+         }
+        
+        break;
+    /////////////////////////////////////////////
+    case FSM_Door_Opening:
+        dbg.println("Door opening:",gate.loop_counter++);
+
+        if (end.steady_read() == true)
+        {
+            dbg.println("Terminal sensor triggered");
+            Motor_Stop();
+            gate.FSM = FSM_Wait_For_Closing;
+        }
+        else
+        {
+            dbg.println("Terminal sensor not triggered:",gate.loop_counter++);
+            delay(1000);
+        }
+        break;
+    /////////////////////////////////////////////
+    case FSM_Wait_For_Closing:
+        gate.loop_counter = 0;
+        for(int i=0;i<10;i++)
+        {
+            dbg.println("Waiting for door to close:",gate.loop_counter++);
+            delay(1000);
+        }
+        dbg.println("Waiting time over. Going to close door");
+        Motor_Rotate_Towards_Home(Speed_JoG);
+        delay(1000);
+        Motor_Rotate_Towards_Home(30);
+        delay(5000);
+        Motor_Rotate_Towards_Home(Speed_JoG);
+        delay(1000);
+        FSM = FSM_Door_Closing;     
+        break;
+    /////////////////////////////////////////////
+    case FSM_Door_Closing:
+        dbg.println("Door closing:",gate.loop_counter++);
+        if (home.steady_read() == true)
+        {
+            dbg.println("Home sensor triggered");
+            Motor_Stop();
+            gate.FSM = FSM_Read_Indoor_switch;
+        }
+        else
+        {
+            dbg.println("Home sensor not triggered:",gate.loop_counter++);
+            delay(1000);
+        }
+        break;  
+    /////////////////////////////////////////////
+    
+    default:
+        break;
+    }
+}
+//_________________________________________________________________________________________________________
+bool Autonomous_Gate::Go_Home()
+{
+    dbg.println("Checking home sensor...");
+    delay(1000);
+ 
+    if(home.steady_read()==true)
+    {
+       dbg.println("The door is in Home position. No need to move.");
+       return true;
+    }
+    else
+    {      
+        dbg.println("The door is not in Home position. Moving towards home...");
+        delay(1000);
+        Motor_Rotate_Towards_Home(Speed_JoG);
+    }   
+
+    do
+    {
+        dbg.println("waiting for home sensor to be triggered:",gate.loop_counter++);
+        bz.beep();
+    }while(home.steady_read()==false);
+
+    Motor_Stop();
+    return true;
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::Motor_Rotate_Towards_Home(char dutyCycle)
+{
+    Rpwm.disable();
+
+    Lpwm.setDuty(dutyCycle);
+    Lpwm.enable();
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::Motor_Rotate_Towards_Terminal(char dutyCycle)
+{
+    Lpwm.disable();
+
+    Rpwm.setDuty(dutyCycle);
+    Rpwm.enable();
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::Motor_Stop()
+{
     Lpwm.disable();
     Rpwm.disable();
+}
+//_________________________________________________________________________________________________________
+
+
+
+
+
+
+
+//   if(home_tirggered())
+//     {
+//         dbg.println("Home sensor triggered");
+//     }
+//     else
+//     {
+//         dbg.println("Home sensor not triggered");
+//     }
+
+
+    // // Lpwm.enable();
+    // // Rpwm.disable();
+    
+    // dbg.println("Left PWM ON");
+    
+    // delay(5000);
+    
+    // Lpwm.disable();
+    // delay(5000);
+
+    // Rpwm.enable();
+    // delay(5000);
+    // Rpwm.disable();
+    // delay(5000);
+
+    // Lpwm.test();
+
+    // en.test();
+    // Lpwm.test();
+
+
+
+
+    
 
     // calling_Bell.begin();
     // Lpwm.begin(); 
@@ -84,456 +274,3 @@ void Autonomous_Gate::PRJ_Autonomous_Gate_SetUp()
     // fault.begin(); 
     // dir.begin(); 
     // bzr_gt.begin();
-}
-//_________________________________________________________________________________________________________
-void Autonomous_Gate::PRJ_Autonomous_Gate_Loop()
-{
-    st.blink();
-
-    Lpwm.enable();
-    Rpwm.disable();
-    delay(5000);
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-    Lpwm.disable();
-    delay(5000);
-
-    Rpwm.enable();
-    delay(5000);
-    Rpwm.disable();
-    delay(5000);
-
-
-    // FSM_Handler();
-    // Lpwm.test();
-
-    // en.test();
-    // Lpwm.test();
-}
-//_________________________________________________________________________________________________________
-void Autonomous_Gate::FSM_Handler()
-{
-    switch (gate.FSM)
-    {
-    case FSM_init:
-         
-        break;
-    
-    default:
-        break;
-    }
-}
-//_________________________________________________________________________________________________________
-

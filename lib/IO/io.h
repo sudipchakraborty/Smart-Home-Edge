@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 
+// Number of consecutive matching samples required to change switch state.
+#define switch_check 10
+
 /**
  * @brief IO Direction
  */
@@ -44,6 +47,7 @@ private:
 
     uint8_t pin;
     IO_MODE mode;
+    bool steadyState = false;
 
     IO_STATUS status;
 
@@ -93,6 +97,13 @@ public:
      * @return true Logical ON
      */
     bool read();
+
+    /**
+     * @brief Read IO switch_check times and accept only a steady result
+     *
+     * @return New state when every sample agrees, otherwise previous stable state
+     */
+    bool steady_read();
 
     /**
      * @brief Check logical ON state

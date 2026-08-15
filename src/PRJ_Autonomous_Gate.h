@@ -18,10 +18,16 @@
 #define PIN_LED_FAULT       19
 #define PIN_RE_DE           18  
 #define PIN_BZR             5  
+
+#define Speed_JoG          20
 ////////////////////////////////
 
 enum{
     FSM_init,
+    FSM_Read_Indoor_switch,
+    FSM_Door_Opening,
+    FSM_Wait_For_Closing,
+    FSM_Door_Closing,
     FSM_read_sensor
 
 };
@@ -41,6 +47,7 @@ private:
     void FSM_Handler();
 
     uint8_t FSM=0;
+    uint16_t loop_counter=0;
     // uint8_t channel;
 
     // uint32_t frequency;
@@ -54,12 +61,12 @@ private:
     // static uint8_t nextChannel;
 
 public:
-    
-
-
     void PRJ_Autonomous_Gate_SetUp();
     void PRJ_Autonomous_Gate_Loop();
-    
+    bool Go_Home();
+    void Motor_Rotate_Towards_Home(char dutyCycle);
+    void Motor_Rotate_Towards_Terminal(char dutyCycle);
+    void Motor_Stop();
 
     // /**
     //  * @brief Construct PWM object

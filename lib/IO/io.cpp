@@ -113,7 +113,43 @@ bool IO::read()
 
     return value;
 }
+//__________________________________________________________________________________________________________
+/**
+ * @brief Read switch_check times and update only when all readings agree
+ */
+bool IO::steady_read()
+{
+    char count_true = 0;
+    char count_false = 0;
 
+    while(1)
+    {
+        delay(10);
+
+        if(read()==true)
+        {
+            count_true++;
+            count_false = 0;
+            if(count_true>=switch_check)
+            {         
+                return true;
+            }
+        }
+        else
+        {     
+            if(read()==false)
+            {
+                count_false++;
+                count_true = 0;
+                if(count_false>=switch_check)
+                {
+                    return false;
+                }
+            }
+        }     
+    }
+}
+//_________________________________________________________________________________________________________
 /**
  * @brief Check ON state
  */
