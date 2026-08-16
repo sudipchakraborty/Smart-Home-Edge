@@ -35,8 +35,8 @@ PWM Rpwm(PIN_R_PWM,25000,10);          // 1kHz, 10-bit
 ///////////////////////////////////
 
 //=====assign for input=========================
-IO home(PIN_SEN_HOME,IO_INPUT_PULLUP,ACTIVE_HIGH);
-IO end(PIN_SEN_TERMINAL,IO_INPUT_PULLUP,ACTIVE_HIGH);
+IO home(PIN_SEN_HOME,IO_INPUT_PULLUP,ACTIVE_LOW);
+IO end(PIN_SEN_TERMINAL,IO_INPUT_PULLUP,ACTIVE_LOW);
 IO indoor(PIN_SW_INDOOR,IO_INPUT_PULLUP,ACTIVE_LOW);
 
 IO outdoor(PIN_SW_OUTDOOR,IO_INPUT_PULLUP,ACTIVE_LOW);
@@ -102,21 +102,51 @@ void Autonomous_Gate::FSM_Handler()
         break;
     ////////////////////////////////////////////
     case FSM_Read_Indoor_switch:
-         if (indoor.steady_read() == true)
+         if (indoor.read() == true)
          {
              dbg.println("Indoor switch pressed");
-             Motor_Rotate_Towards_Terminal(Speed_JoG);
-             delay(3000);
-             Motor_Rotate_Towards_Terminal(30);
-             delay(1000);
-             Motor_Rotate_Towards_Terminal(Speed_JoG);
-             delay(3000);
+            
+            //  // JOG
+            int speed=25;
+            do{
+                Motor_Rotate_Towards_Terminal(speed);   
+                delay(400);
+                speed+=5;
+            }while(speed<50);
+
+            
+            speed=40;
+            do{
+                Motor_Rotate_Towards_Terminal(speed);   
+                delay(300);
+                speed-=5;
+            }while(speed>25);
+
+            Motor_Rotate_Towards_Terminal(25); 
+
+            // ACCLn.
+            // for(int k=25;k<50;k++)
+            // {
+            //     Motor_Rotate_Towards_Terminal(k);          delay(500);       
+            // }
+            
+            // // JOG
+            // Motor_Rotate_Towards_Terminal(50);   delay(3000);
+
+
+            // DECLn.
+             // ACCLn.
+            // for(int k=50;k<25;k--)
+            // {
+            //     Motor_Rotate_Towards_Terminal(k); delay(500);       
+            // }
+             
              gate.FSM = FSM_Door_Opening;
          }
          else
          {
              dbg.println("Indoor switch not pressed:",gate.loop_counter++);
-             delay(1000);
+             delay(10);
          }
         
         break;
@@ -124,7 +154,7 @@ void Autonomous_Gate::FSM_Handler()
     case FSM_Door_Opening:
         dbg.println("Door opening:",gate.loop_counter++);
 
-        if (end.steady_read() == true)
+        if (end.read() == true)
         {
             dbg.println("Terminal sensor triggered");
             Motor_Stop();
@@ -133,7 +163,7 @@ void Autonomous_Gate::FSM_Handler()
         else
         {
             dbg.println("Terminal sensor not triggered:",gate.loop_counter++);
-            delay(1000);
+            // delay(1000);
         }
         break;
     /////////////////////////////////////////////
@@ -145,12 +175,12 @@ void Autonomous_Gate::FSM_Handler()
             delay(1000);
         }
         dbg.println("Waiting time over. Going to close door");
-        Motor_Rotate_Towards_Home(Speed_JoG);
-        delay(1000);
-        Motor_Rotate_Towards_Home(30);
-        delay(5000);
-        Motor_Rotate_Towards_Home(Speed_JoG);
-        delay(1000);
+        Motor_Rotate_Towards_Home(25);
+        // delay(1000);
+        // Motor_Rotate_Towards_Home(30);
+        // delay(5000);
+        // Motor_Rotate_Towards_Home(Speed_JoG);
+        // delay(1000);
         FSM = FSM_Door_Closing;     
         break;
     /////////////////////////////////////////////
@@ -165,7 +195,7 @@ void Autonomous_Gate::FSM_Handler()
         else
         {
             dbg.println("Home sensor not triggered:",gate.loop_counter++);
-            delay(1000);
+            // delay(1000);
         }
         break;  
     /////////////////////////////////////////////
@@ -204,18 +234,18 @@ bool Autonomous_Gate::Go_Home()
 //_________________________________________________________________________________________________________
 void Autonomous_Gate::Motor_Rotate_Towards_Home(char dutyCycle)
 {
-    Rpwm.disable();
-
-    Lpwm.setDuty(dutyCycle);
-    Lpwm.enable();
-}
-//_________________________________________________________________________________________________________
-void Autonomous_Gate::Motor_Rotate_Towards_Terminal(char dutyCycle)
-{
     Lpwm.disable();
 
     Rpwm.setDuty(dutyCycle);
     Rpwm.enable();
+}
+//_________________________________________________________________________________________________________
+void Autonomous_Gate::Motor_Rotate_Towards_Terminal(char dutyCycle)
+{
+    Rpwm.disable();
+
+    Lpwm.setDuty(dutyCycle);
+    Lpwm.enable();
 }
 //_________________________________________________________________________________________________________
 void Autonomous_Gate::Motor_Stop()

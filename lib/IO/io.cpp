@@ -124,7 +124,7 @@ bool IO::steady_read()
 
     while(1)
     {
-        delay(10);
+        delay(1);
 
         if(read()==true)
         {

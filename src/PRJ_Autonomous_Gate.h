@@ -19,7 +19,7 @@
 #define PIN_RE_DE           18  
 #define PIN_BZR             5  
 
-#define Speed_JoG          20
+#define Speed_JoG          30
 ////////////////////////////////
 
 enum{
