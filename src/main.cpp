@@ -1,5 +1,5 @@
-// #define LowPowerTimerModule
-#define PRJ_Autonomous_Gate
+#define LowPowerTimerModule
+// #define PRJ_Autonomous_Gate
 // #define PRJ_Template
 // # define Prj_Server
 // #define DispenserModule
