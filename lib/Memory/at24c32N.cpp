@@ -29,7 +29,7 @@ bool i2cRead(uint16_t memAddr, uint8_t* data, size_t len)
     if (Wire.endTransmission(false) != 0)
         return false;
 
-    Wire.requestFrom(AT24C32_I2C_ADDR, (uint8_t)len);
+    Wire.requestFrom(static_cast<uint8_t>(AT24C32_I2C_ADDR), static_cast<uint8_t>(len));
     for (size_t i = 0; i < len; i++)
     {
         if (!Wire.available())

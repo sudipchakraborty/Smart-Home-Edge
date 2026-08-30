@@ -53,7 +53,7 @@ IO calling_Bell(PIN_CALLING_BELL,IO_OUTPUT,ACTIVE_LOW);
 
 IO fault(PIN_LED_FAULT,IO_OUTPUT,ACTIVE_LOW);
 IO dir(PIN_RE_DE,IO_OUTPUT,ACTIVE_LOW);
-extern Buzzer bz(PIN_BZR,ACTIVE_LOW);
+Buzzer bz(PIN_BZR,ACTIVE_LOW);
 ////////////////////////////////
 
 
