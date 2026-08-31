@@ -140,21 +140,22 @@ uint32_t readUint32FromModbus(uint16_t *modbusMemory,uint16_t startAddr)
 //__________________________________________________________________________________________
 String secondsToHHMMSS(uint32_t totalSeconds)
 {
-    uint8_t hh;
-    uint8_t mm;
-    uint8_t ss;
+    if (totalSeconds > 86399UL)
+    {
+        return String("INVALID(") + String(totalSeconds) + ")";
+    }
 
-    hh = totalSeconds / 3600;
-    mm = (totalSeconds % 3600) / 60;
-    ss = totalSeconds % 60;
+    const uint32_t hh = totalSeconds / 3600UL;
+    const uint32_t mm = (totalSeconds % 3600UL) / 60UL;
+    const uint32_t ss = totalSeconds % 60UL;
 
     char buf[12];
 
     sprintf(buf,
-            "%02d:%02d:%02d",
-            hh,
-            mm,
-            ss);
+            "%02lu:%02lu:%02lu",
+            static_cast<unsigned long>(hh),
+            static_cast<unsigned long>(mm),
+            static_cast<unsigned long>(ss));
 
     return String(buf);
 }

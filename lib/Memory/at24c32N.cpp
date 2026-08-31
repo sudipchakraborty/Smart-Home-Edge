@@ -46,6 +46,12 @@ void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint32_t freq)
     Wire.begin(sdaPin, sclPin, freq);
 }
 
+bool AT24C32_Probe()
+{
+    Wire.beginTransmission(AT24C32_I2C_ADDR);
+    return Wire.endTransmission() == 0;
+}
+
 bool AT24C32_ReadRegister(uint16_t regAddr, uint16_t* value)
 {
     if (!value) return false;

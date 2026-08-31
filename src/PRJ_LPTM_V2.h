@@ -62,14 +62,12 @@ enum FSMStates {
 //////////////////////////
 void LPTM_setup_V2();
 void LPTM_loop_V2();
-void modbusSaveToEEPROM(void);
-void LoadModbusConfigFromEEPROM(void);
+bool modbusSaveToEEPROM(void);
+bool LoadModbusConfigFromEEPROM(void);
 void displayModbusData(void);
 void StateMachine(void);
 void ModbusActionHandler(void);
 void Modbus_Handler();
-void modbusSaveToEEPROM(void);
-void LoadModbusConfigFromEEPROM(void);
 void Update_Time_From_Modbus(void);
 void Test_Data_Save_To_Modbus(void);
 void SystemTest(void);
@@ -78,4 +76,3 @@ void SystemTest(void);
 
 
 #endif // PRJ_LPTM_H
-

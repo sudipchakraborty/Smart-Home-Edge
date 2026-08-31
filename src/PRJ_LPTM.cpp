@@ -17,6 +17,7 @@
 #include "Utils.h"
 #include "SimulatedClock.h"
 #include "eepromStorage.h"
+#include "RelayScheduleStorage.h"
 /////////////////////////////////////////////////////////////////////////////////////////
 uint8_t MY_SLAVE_ID = 1;   // change per device   1
 RS485 rs485;
@@ -43,6 +44,23 @@ int FSMState;
 SimulatedClock simClock;
 EEPROMStorage eeprom;
 
+static void relayScheduleDiagnostic(const String &message)
+{
+    dbg.println(message);
+}
+
+static const RelayScheduleDefinition relayScheduleDefinitions[] = {
+    {"Relay 1 ON", ModbusAddr_RL1_StartTime, EEPROM_Addr_RL1_OnTime},
+    {"Relay 1 OFF", ModbusAddr_RL1_EndTime, EEPROM_Addr_RL1_OffTime},
+    {"Relay 2 ON", ModbusAddr_RL2_StartTime, EEPROM_Addr_RL2_OnTime},
+    {"Relay 2 OFF", ModbusAddr_RL2_EndTime, EEPROM_Addr_RL2_OffTime},
+};
+
+RelayScheduleStorage relayScheduleStorage(
+    eeprom, modbusMemory, relayScheduleDefinitions,
+    sizeof(relayScheduleDefinitions) / sizeof(relayScheduleDefinitions[0]),
+    relayScheduleDiagnostic);
+
 int countValue = 0;
 uint16_t temp[2];
 ////////////////////////////////////////////////////////////////////////////////////
@@ -58,11 +76,16 @@ void LPTM_setup()
     SecondTick.set_time(1000);
     SecondTick.start();
 
-    eeprom.begin(21, 22);
+    const bool eepromReady = eeprom.begin(21, 22);
+    if (eepromReady)
+        dbg.println("AT24C32 detected at configured I2C address 0x57");
+    else
+        dbg.println("EEPROM PROBE ERROR: AT24C32 not detected at configured I2C address 0x57");
     /////////////////////////////
     // Test_Data_Save_To_Modbus();
     // modbusSaveToEEPROM();
 
+    relayScheduleStorage.begin();
     LoadModbusConfigFromEEPROM();
     Update_Time_From_Modbus();
     Update_RTC_Registers();
@@ -249,9 +272,12 @@ void ModbusActionHandler(void)
                 case 6:
                 case 7:
                 case 8:
-                    modbusSaveToEEPROM();
-                    LoadModbusConfigFromEEPROM();
-                    Update_Time_From_Modbus();
+                {
+                    const RelayScheduleStorage::WriteResult result =
+                        relayScheduleStorage.handleModbusWordWrite(modbusFrame.address);
+                    if (result == RelayScheduleStorage::WriteResult::Updated)
+                        Update_Time_From_Modbus();
+                }
                 break;
                 /////////////////////////////////////
                 case ModbusAddr_RTC_Hour:
@@ -292,38 +318,14 @@ void ModbusActionHandler(void)
         }   
     }
 //__________________________________________________________________________________________
-void modbusSaveToEEPROM(void)
+bool modbusSaveToEEPROM(void)
 {
-    uint32_t readVal;  
-
-    readVal= Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL1_StartTime);
-    eeprom.writeUint32(EEPROM_Addr_RL1_OnTime, readVal);
-
-    readVal= Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL1_EndTime);
-    eeprom.writeUint32(EEPROM_Addr_RL1_OffTime, readVal);
-
-    readVal= Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL2_StartTime);
-    eeprom.writeUint32(EEPROM_Addr_RL2_OnTime, readVal);
-
-    readVal= Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL2_EndTime);
-    eeprom.writeUint32(EEPROM_Addr_RL2_OffTime, readVal);
+    return relayScheduleStorage.persistAll();
 } 
 //__________________________________________________________________________________________
-void LoadModbusConfigFromEEPROM(void)
+bool LoadModbusConfigFromEEPROM(void)
 {
-    uint32_t readVal;
-
-    eeprom.readUint32(EEPROM_Addr_RL1_OnTime, readVal);
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_StartTime,readVal);
-
-    eeprom.readUint32(EEPROM_Addr_RL1_OffTime, readVal);
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_EndTime,readVal);
-
-    eeprom.readUint32(EEPROM_Addr_RL2_OnTime, readVal);
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_StartTime,readVal);
-
-    eeprom.readUint32(EEPROM_Addr_RL2_OffTime, readVal);
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_EndTime,readVal);
+    return relayScheduleStorage.loadAll();
 }
 //__________________________________________________________________________________________
 void Test_Data_Save_To_Modbus(void)
@@ -345,19 +347,15 @@ void Test_Data_Save_To_Modbus(void)
 //__________________________________________________________________________________________
 void Update_Time_From_Modbus(void)
 {
-    uint32_t val;
+    const uint32_t rl1On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_StartTime);
+    const uint32_t rl1Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_EndTime);
+    const uint32_t rl2On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_StartTime);
+    const uint32_t rl2Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_EndTime);
 
-    val=Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL1_StartTime);
-    RL1_Time.set_on_time(val);
-
-    val=Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL1_EndTime);
-    RL1_Time.set_off_time(val);
-
-    val=Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL2_StartTime);
-    RL2_Time.set_on_time(val);
-
-    val=Utils::readUint32FromModbus(modbusMemory,ModbusAddr_RL2_EndTime);
-    RL2_Time.set_off_time(val);
+    if (RelayScheduleStorage::isValid(rl1On)) RL1_Time.set_on_time(rl1On);
+    if (RelayScheduleStorage::isValid(rl1Off)) RL1_Time.set_off_time(rl1Off);
+    if (RelayScheduleStorage::isValid(rl2On)) RL2_Time.set_on_time(rl2On);
+    if (RelayScheduleStorage::isValid(rl2Off)) RL2_Time.set_off_time(rl2Off);
 }
 //__________________________________________________________________________________________
 void Update_RTC_Registers(void)

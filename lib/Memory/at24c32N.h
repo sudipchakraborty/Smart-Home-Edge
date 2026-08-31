@@ -17,6 +17,7 @@
 
 // Must be called once
 void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint32_t freq);
+bool AT24C32_Probe();
 
 // Single 16-bit register read
 bool AT24C32_ReadRegister(uint16_t regAddr, uint16_t* value);

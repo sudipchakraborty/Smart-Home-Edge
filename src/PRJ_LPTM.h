@@ -52,14 +52,12 @@ enum FSMStates {
 //////////////////////////
 void LPTM_setup();
 void LPTM_loop();
-void modbusSaveToEEPROM(void);
-void LoadModbusConfigFromEEPROM(void);
+bool modbusSaveToEEPROM(void);
+bool LoadModbusConfigFromEEPROM(void);
 void displayModbusData(void);
 void StateMachine(void);
 void ModbusActionHandler(void);
 void Modbus_Handler();
-void modbusSaveToEEPROM(void);
-void LoadModbusConfigFromEEPROM(void);
 void Update_Time_From_Modbus(void);
 void Update_RTC_Registers(void);
 bool Set_RTC_From_Modbus(void);

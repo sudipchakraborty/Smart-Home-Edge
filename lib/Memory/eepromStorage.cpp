@@ -14,7 +14,7 @@ bool EEPROMStorage::begin(uint8_t sdaPin,
                           uint32_t freq)
 {
     AT24C32_Init(sclPin, sdaPin, freq);
-    return true;
+    return AT24C32_Probe();
 }
 
 /* -------------------------------------------------
@@ -24,6 +24,9 @@ bool EEPROMStorage::readBytes(uint16_t addr,
                               uint8_t* data,
                               uint16_t len)
 {
+    if (data == nullptr || len == 0 || addr >= AT24C32_TOTAL_BYTES ||
+        static_cast<uint32_t>(addr) + len > AT24C32_TOTAL_BYTES)
+        return false;
     return i2cRead(addr, data, len);
 }
 
@@ -32,6 +35,9 @@ bool EEPROMStorage::readBytes(uint16_t addr,
  * ------------------------------------------------- */
 bool EEPROMStorage::writeBytes(uint16_t addr,const uint8_t* data,uint16_t len)
 {
+    if (data == nullptr || len == 0 || addr >= AT24C32_TOTAL_BYTES ||
+        static_cast<uint32_t>(addr) + len > AT24C32_TOTAL_BYTES)
+        return false;
     bool ret;
     ret = i2cWrite(addr, (uint8_t*)data, len);
     delay(10);   // EEPROM internal write cycle
