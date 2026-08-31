@@ -11,6 +11,8 @@ class relay
       void on(void);
       void off(void);
       void toggle(void);
+      void test(void);
+      void test(long delayTime);
     private: 
       byte pin;      
 };

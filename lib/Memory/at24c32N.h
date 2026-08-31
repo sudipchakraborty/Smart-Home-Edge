@@ -7,7 +7,9 @@
 
 /* -------- AT24C32 CONFIG -------- */
 
-#define AT24C32_I2C_ADDR   0x50    // A2=A1=A0=0
+#ifndef AT24C32_I2C_ADDR
+#define AT24C32_I2C_ADDR   0x57    // Onboard DS3231 module: A2=A1=A0=1
+#endif
 #define AT24C32_PAGE_SIZE  32      // bytes
 #define AT24C32_TOTAL_BYTES 4096
 

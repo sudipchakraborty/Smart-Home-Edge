@@ -1,25 +1,15 @@
-#define LowPowerTimerModule
-// #define PRJ_Autonomous_Gate
-// #define PRJ_Template
-// # define Prj_Server
-// #define DispenserModule
+#include "ProjectSelection.h"
 ////////////////////////////////////////////////////////////////////////////////////
-#ifdef LowPowerTimerModule
+#ifdef LowPowerTimerModule_V1
 #include <PRJ_LPTM.h>
 void setup() { LPTM_setup(); }
 void loop(){ LPTM_loop();}
 #endif
 ////////////////////////////////////////////////////////////////////////////////////
-#ifdef DispenserModule
-#include <PRJ_Dispenser.h>    
-void setup() { DispenserModule_setup(); }
-void loop(){ DispenserModule_loop();}
-#endif
-////////////////////////////////////////////////////////////////////////////////////
-#ifdef Prj_Server
-#include <PRJ_Server.h>    
-void setup() {  Server_setup(); }
-void loop(){ Server_loop();}
+#ifdef LowPowerTimerModule_V2
+#include <PRJ_LPTM_V2.h>
+void setup() { LPTM_setup_V2(); }
+void loop(){ LPTM_loop_V2();}
 #endif
 ////////////////////////////////////////////////////////////////////////////////////
 #ifdef PRJ_Autonomous_Gate
@@ -35,3 +25,15 @@ void loop(){ Server_loop();}
     void loop(){ PRJ_Template_Loop();}
 #endif
 /////////////////////////////////////////////////////////////////////////////////
+#ifdef Prj_Server
+#include <PRJ_Server.h>
+void setup() {  Server_setup(); }
+void loop(){ Server_loop();}
+#endif
+/////////////////////////////////////////////////////////////////////////////////
+#ifdef DispenserModule
+#include <PRJ_Dispenser.h>
+void setup() { DispenserModule_setup(); }
+void loop(){ DispenserModule_loop();}
+#endif
+//////////////////////////////////////////////////////////////////////////////////
