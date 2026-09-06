@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "at24c32N.h"
 
 class EEPROMStorage
 {
@@ -13,6 +14,7 @@ public:
 
     bool begin(uint8_t sdaPin,
                uint8_t sclPin,
+               uint8_t deviceAddress = AT24C32_I2C_ADDR,
                uint32_t freq = 100000);
 
     bool readBytes(uint16_t addr,

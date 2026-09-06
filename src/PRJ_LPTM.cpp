@@ -17,7 +17,9 @@
 #include "Utils.h"
 #include "SimulatedClock.h"
 #include "eepromStorage.h"
-#include "RelayScheduleStorage.h"
+#include "RelayScheduleHmsStorage.h"
+#include "I2CScanner.h"
+#include "at24c32N.h"
 /////////////////////////////////////////////////////////////////////////////////////////
 uint8_t MY_SLAVE_ID = 1;   // change per device   1
 RS485 rs485;
@@ -44,52 +46,37 @@ int FSMState;
 SimulatedClock simClock;
 EEPROMStorage eeprom;
 
-static void relayScheduleDiagnostic(const String &message)
-{
-    dbg.println(message);
-}
-
-static const RelayScheduleDefinition relayScheduleDefinitions[] = {
-    {"Relay 1 ON", ModbusAddr_RL1_StartTime, EEPROM_Addr_RL1_OnTime},
-    {"Relay 1 OFF", ModbusAddr_RL1_EndTime, EEPROM_Addr_RL1_OffTime},
-    {"Relay 2 ON", ModbusAddr_RL2_StartTime, EEPROM_Addr_RL2_OnTime},
-    {"Relay 2 OFF", ModbusAddr_RL2_EndTime, EEPROM_Addr_RL2_OffTime},
-};
-
-RelayScheduleStorage relayScheduleStorage(
-    eeprom, modbusMemory, relayScheduleDefinitions,
-    sizeof(relayScheduleDefinitions) / sizeof(relayScheduleDefinitions[0]),
-    relayScheduleDiagnostic);
-
 int countValue = 0;
 uint16_t temp[2];
+long Modbus_REceive_PacketCount=0;
 ////////////////////////////////////////////////////////////////////////////////////
 void LPTM_setup()
 {
-    st.begin(LED_PIN, 5000);
-    rtc.begin();
     dbg.begin(Serial1, 115200, 4);
     dbg.println("system started..");
+
+    st.begin(LED_PIN, 5000);
+    rtc.begin();
+
     rs485.DefaultSetUp();
     dbg.println("system Initialized..");
 
     SecondTick.set_time(1000);
     SecondTick.start();
 
-    const bool eepromReady = eeprom.begin(21, 22);
+    const bool eepromReady = eeprom.begin(21, 22, LPTM_EEPROM_I2C_ADDR);
     if (eepromReady)
-        dbg.println("AT24C32 detected at configured I2C address 0x57");
+        dbg.println("AT24C32 detected at project I2C address 0x50");
     else
-        dbg.println("EEPROM PROBE ERROR: AT24C32 not detected at configured I2C address 0x57");
-    /////////////////////////////
-    // Test_Data_Save_To_Modbus();
-    // modbusSaveToEEPROM();
+        dbg.println("EEPROM PROBE ERROR: AT24C32 not detected at project I2C address 0x50");
 
-    relayScheduleStorage.begin();
+    // Discover_I2C_Devices();
+    
+    delay(1000);
+    /////////////////////////////
     LoadModbusConfigFromEEPROM();
     Update_Time_From_Modbus();
-    Update_RTC_Registers();
-    
+ 
     RL1_Time.set_time(10000);
     RL1_Time.reset();
     RL1_Time.start();
@@ -105,13 +92,51 @@ void LPTM_setup()
 
      simClock.set(s);
      uint32_t startSec = Utils::DT_String_To_Seconds_From_TimePart(s.c_str());
-     dbg.print("Time In second: ", startSec); 
+     dbg.print("Time In second: ", startSec);
+
+     dbg.println("System Initialized..");
+     bzr.beep();
+     delay(1000);
+}
+//__________________________________________________________________________________________
+uint8_t Discover_I2C_Devices(void)
+{
+    dbg.println("Checking I2C devices on SDA 21 / SCL 22...");
+    const uint8_t deviceCount = I2CScanner::scan(Serial1);
+
+    if (I2CScanner::devicePresent(0x68))
+        dbg.println("RTC detected at I2C address 0x68");
+    else
+        dbg.println("RTC ERROR: no device detected at I2C address 0x68");
+
+    bool eepromFound = false;
+    for (uint8_t address = 0x50; address <= 0x57; ++address)
+    {
+        if (!I2CScanner::devicePresent(address))
+            continue;
+
+        eepromFound = true;
+        char message[64];
+        snprintf(message, sizeof(message),
+                 "EEPROM candidate detected at I2C address 0x%02X", address);
+        dbg.println(message);
+
+        if (address == LPTM_EEPROM_I2C_ADDR)
+            dbg.println("EEPROM address matches project address 0x50");
+        else
+            dbg.println("EEPROM ADDRESS MISMATCH: update LPTM_EEPROM_I2C_ADDR");
+    }
+
+    if (!eepromFound)
+        dbg.println("EEPROM ERROR: no device detected from address 0x50 to 0x57");
+
+    return deviceCount;
 }
 //__________________________________________________________________________________________
 void LPTM_loop()
 {  
     st.blink();
-    StateMachine(); 
+    StateMachine();
     Modbus_Handler();
 }
 //__________________________________________________________________________________________
@@ -129,6 +154,35 @@ void StateMachine(void)
                 // simClock.updateMin(30);
                 dbg.println("==============");
                 String s=rtc.readDT_As_ddmmyyyyhhmmss();
+
+                uint16_t rtcYear = 0;
+                uint8_t rtcMonth = 0;
+                uint8_t rtcDay = 0;
+                uint8_t rtcHour = 0;
+                uint8_t rtcMinute = 0;
+                uint8_t rtcSecond = 0;
+
+                if (Utils::parseDDMMYYYY_HHMMSS(
+                        s.c_str(), rtcYear, rtcMonth, rtcDay,
+                        rtcHour, rtcMinute, rtcSecond))
+                {
+                    modbusMemory[ModbusAddr_RTC_Hour_Reg] = rtcHour;
+                    modbusMemory[ModbusAddr_RTC_Minute_Reg] = rtcMinute;
+                    modbusMemory[ModbusAddr_RTC_Second_Reg] = rtcSecond;
+                    modbusMemory[ModbusAddr_RTC_Day_Reg] = rtcDay;
+                    modbusMemory[ModbusAddr_RTC_Month_Reg] = rtcMonth;
+                    modbusMemory[ModbusAddr_RTC_Year_Reg] = rtcYear;
+                }
+                else
+                {
+                    dbg.println("RTC parse ERROR: expected dd-mm-yyyy HH:mm:ss");
+                }
+
+
+
+
+
+
                 // String s=simClock.readDT_As_ddmmyyyyhhmmss();
 
                 dbg.println("TIME:",s);
@@ -209,21 +263,24 @@ void Modbus_Handler()
         }
         if (!mb.isModbusPacketHealthy(modbusFrame)) return;
         mb.PacketAvailable=true;
+        dbg.println("Modbus Packet COunt=", ++Modbus_REceive_PacketCount);
+
         mb.debugPrintModbusFrame(modbusFrame, dbg);
 
         // Holding-register reads must return the RTC value at request time.
-        if (modbusFrame.function == 0x03)
-        {
-            Update_RTC_Registers();
-        }
+        // if (modbusFrame.function == 0x03)
+        // {
+        //     // Update_RTC_Registers();
+        // }
 
         char txLen = Modbus_BuildResponse(&modbusFrame,txBuf,sizeof(txBuf));
         if (txLen > 0){
             rs485.send((uint8_t*)txBuf, txLen);
             // dbg.print("Sent Response: ");
             // dbg.printHex((uint8_t*)txBuf, txLen);
-            ModbusActionHandler();
+           
         }
+         ModbusActionHandler();
     }
  }
 //__________________________________________________________________________________________
@@ -232,100 +289,274 @@ void ModbusActionHandler(void)
     if (!mb.PacketAvailable) return;
      mb.PacketAvailable=false;
 
-         if(modbusFrame.function == 0x06) { // Write Single Register
-            switch(modbusFrame.address) 
+    switch (modbusFrame.function){
+        case 0x06: // Write Single Register
+            switch(modbusFrame.address)
             {
-            case ModbusAddr_Output:
-                  if(modbusFrame.value & Modbus_RL1) 
-                  {
-                    rl1.on();
-                    dbg.println("Relay 1 ON");
+                case ModbusAddr_Output: // controller pin output control
+                    modbusMemory[ModbusAddr_Output] = modbusFrame.value;
+                    if(modbusFrame.value & Modbus_RL1) 
+                    {
+                        rl1.on();
+                        dbg.println("Relay 1 ON");
                     } else {
                         rl1.off();
                         dbg.println("Relay 1 OFF");
                     }
                     //////////////////////////
                     if(modbusFrame.value & Modbus_RL2) {
-                    rl2.on();
-                    dbg.println("Relay 2 ON");
+                        rl2.on();
+                        dbg.println("Relay 2 ON");
                     } else {
                         rl2.off();
                         dbg.println("Relay 2 OFF");
                     }
                     ////////////////////////////////
                     if(modbusFrame.value & Modbus_BZR) {
-                    bzr.on();
-                    dbg.println("Buzzer ON");
+                        bzr.on();
+                        dbg.println("Buzzer ON");
                     } else {
-                        // No direct way to turn off buzzer if using buzz(duration, frequency)
-                        // You can implement a method in Buzzer class to stop buzzing if needed
                         bzr.off();
                         dbg.println("Buzzer OFF");
-                    }                
+                    }
+                    ////////////////////////////////
+                    if(modbusFrame.value & Modbus_LED_TX) {
+                        ledTx.on();
+                        dbg.println("TX LED ON");
+                    } else {
+                        ledTx.off();
+                        dbg.println("TX LED OFF");
+                    }
+                    ////////////////////////////////
+                    if(modbusFrame.value & Modbus_LED_RX) {
+                        ledRx.on();
+                        dbg.println("RX LED ON");
+                    } else {
+                        ledRx.off();
+                        dbg.println("RX LED OFF");
+                    }
+                    ////////////////////////////////
+                    if(modbusFrame.value & Modbus_LED_STATUS) {
+                        st.on();
+                        dbg.println("Status LED ON");
+                    } else {
+                        st.off();
+                        dbg.println("Status LED OFF");
+                    }
                 break;
                 ////////////////////////////////////
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                case 8:
+                case ModbusAddr_Beep:
+                    bzr.beep();
+                    dbg.println("Buzzer Beep Triggered");
+                break;
+                ////////////////////////////////////
+                case ModbusAddr_RL1_StartTime_hh: modbusMemory[ModbusAddr_RL1_StartTime_hh] = modbusFrame.value; break;
+                case ModbusAddr_RL1_StartTime_mm: modbusMemory[ModbusAddr_RL1_StartTime_mm] = modbusFrame.value; break;
+                case ModbusAddr_RL1_StartTime_ss: modbusMemory[ModbusAddr_RL1_StartTime_ss] = modbusFrame.value; break;
+                case ModbusAddr_RL1_EndTime_hh: modbusMemory[ModbusAddr_RL1_EndTime_hh] = modbusFrame.value; break;
+                case ModbusAddr_RL1_EndTime_mm: modbusMemory[ModbusAddr_RL1_EndTime_mm] = modbusFrame.value; break;
+                case ModbusAddr_RL1_EndTime_ss: modbusMemory[ModbusAddr_RL1_EndTime_ss] = modbusFrame.value; break;
+                
+                case ModbusAddr_RL1_Time_Update:
                 {
-                    const RelayScheduleStorage::WriteResult result =
-                        relayScheduleStorage.handleModbusWordWrite(modbusFrame.address);
-                    if (result == RelayScheduleStorage::WriteResult::Updated)
-                        Update_Time_From_Modbus();
+                    if (Update_Relay1_Time_From_Modbus())
+                        dbg.println("Relay 1 Schedule Updated from Modbus Registers");
+                    else
+                        dbg.println("Relay 1 Schedule Update ERROR");
+
+                    modbusMemory[ModbusAddr_RL1_Time_Update] = 0;
                 }
                 break;
-                /////////////////////////////////////
-                case ModbusAddr_RTC_Hour:
-                case ModbusAddr_RTC_Minute:
-                case ModbusAddr_RTC_Second:
-                    if (Set_RTC_From_Modbus())
+                case ModbusAddr_RL2_StartTime_hh: modbusMemory[ModbusAddr_RL2_StartTime_hh] = modbusFrame.value; break;
+                case ModbusAddr_RL2_StartTime_mm: modbusMemory[ModbusAddr_RL2_StartTime_mm] = modbusFrame.value; break;
+                case ModbusAddr_RL2_StartTime_ss: modbusMemory[ModbusAddr_RL2_StartTime_ss] = modbusFrame.value; break;
+                case ModbusAddr_RL2_EndTime_hh: modbusMemory[ModbusAddr_RL2_EndTime_hh] = modbusFrame.value; break;
+                case ModbusAddr_RL2_EndTime_mm: modbusMemory[ModbusAddr_RL2_EndTime_mm] = modbusFrame.value; break;
+                case ModbusAddr_RL2_EndTime_ss: modbusMemory[ModbusAddr_RL2_EndTime_ss] = modbusFrame.value; break;
+                
+                case ModbusAddr_RL2_Time_Update:
+                {
+                    if (Update_Relay2_Time_From_Modbus())
+                        dbg.println("Relay 2 Schedule Updated from Modbus Registers");
+                    else
+                        dbg.println("Relay 2 Schedule Update ERROR");
+
+                    modbusMemory[ModbusAddr_RL2_Time_Update] = 0;
+                }
+                break;
+
+                case ModbusAddr_RTC_Hour: modbusMemory[ModbusAddr_RTC_Hour] = modbusFrame.value; break;
+                case ModbusAddr_RTC_Minute: modbusMemory[ModbusAddr_RTC_Minute] = modbusFrame.value; break;
+                case ModbusAddr_RTC_Second: modbusMemory[ModbusAddr_RTC_Second] = modbusFrame.value; break;
+                case ModbusAddr_RTC_Day: modbusMemory[ModbusAddr_RTC_Day] = modbusFrame.value; break;
+                case ModbusAddr_RTC_Month: modbusMemory[ModbusAddr_RTC_Month] = modbusFrame.value; break;
+                case ModbusAddr_RTC_Year: modbusMemory[ModbusAddr_RTC_Year] = modbusFrame.value; break;
+               
+                case ModbusAddr_RTC_Update:
+                {
+                    const uint16_t hour = modbusMemory[ModbusAddr_RTC_Hour];
+                    const uint16_t minute = modbusMemory[ModbusAddr_RTC_Minute];
+                    const uint16_t second = modbusMemory[ModbusAddr_RTC_Second];
+                    const uint16_t day = modbusMemory[ModbusAddr_RTC_Day];
+                    const uint16_t month = modbusMemory[ModbusAddr_RTC_Month];
+                    const uint16_t shortYear = modbusMemory[ModbusAddr_RTC_Year];
+
+                    bool valid = hour <= 23 && minute <= 59 && second <= 59 &&
+                                 month >= 1 && month <= 12 && shortYear <= 99;
+                    uint8_t maximumDay = 0;
+
+                    if (valid)
                     {
-                        dbg.println("RTC Time Updated: ", rtc.readTimeString());
+                        static const uint8_t daysPerMonth[] =
+                            {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+                        const uint16_t year = 2000 + shortYear;
+                        maximumDay = daysPerMonth[month - 1];
+                        const bool leapYear = ((year % 4 == 0) && (year % 100 != 0)) ||
+                                              (year % 400 == 0);
+                        if (month == 2 && leapYear)
+                            maximumDay = 29;
+                    }
+
+                    valid = valid && day >= 1 && day <= maximumDay;
+                    if (valid && rtc.setDateTime(2000 + shortYear,
+                                                 static_cast<uint8_t>(month),
+                                                 static_cast<uint8_t>(day),
+                                                 static_cast<uint8_t>(hour),
+                                                 static_cast<uint8_t>(minute),
+                                                 static_cast<uint8_t>(second)))
+                    {
+                        dbg.println("RTC Updated: ", rtc.readDateTimeString());
+                        Update_RTC_Registers();
                     }
                     else
                     {
-                        dbg.println("RTC Time Update ERROR");
-                        Update_RTC_Registers();
+                        dbg.println("RTC Update ERROR: invalid date/time registers");
                     }
+
+                    // This is a one-shot command register, not persistent state.
+                    modbusMemory[ModbusAddr_RTC_Update] = 0;
+                }
                 break;
-                /////////////////////////////////////
-                case ModbusAddr_RTC_Day:
-                case ModbusAddr_RTC_Month:
-                case ModbusAddr_RTC_Year:
-                    if (Set_RTC_Date_From_Modbus())
-                    {
-                        dbg.println("RTC Date Updated: ", rtc.readDateTimeString());
-                    }
-                    else
-                    {
-                        dbg.println("RTC Date Update ERROR");
-                        Update_RTC_Registers();
-                    }
-                break;
-                /////////////////////////////////////
+
                 default:
-                dbg.print("Unhandled Register Address: ");
-                break;
+                  break;
             }
-        } else {
-            dbg.print("Unhandled Modbus Function: ");
-            // dbg.println(modbusFrame.function, HEX);
-        }   
+    }
+
+
+
+        //  if(modbusFrame.function == 0x06) { // Write Single Register
+        //     switch(modbusFrame.address) 
+        //     {
+        //     case ModbusAddr_Output:
+        //           if(modbusFrame.value & Modbus_RL1) 
+        //           {
+        //             rl1.on();
+        //             dbg.println("Relay 1 ON");
+        //             } else {
+        //                 rl1.off();
+        //                 dbg.println("Relay 1 OFF");
+        //             }
+        //             //////////////////////////
+        //             if(modbusFrame.value & Modbus_RL2) {
+        //             rl2.on();
+        //             dbg.println("Relay 2 ON");
+        //             } else {
+        //                 rl2.off();
+        //                 dbg.println("Relay 2 OFF");
+        //             }
+        //             ////////////////////////////////
+        //             if(modbusFrame.value & Modbus_BZR) {
+        //             bzr.on();
+        //             dbg.println("Buzzer ON");
+        //             } else {
+        //                 // No direct way to turn off buzzer if using buzz(duration, frequency)
+        //                 // You can implement a method in Buzzer class to stop buzzing if needed
+        //                 bzr.off();
+        //                 dbg.println("Buzzer OFF");
+        //             }                
+        //         break;
+        //         ////////////////////////////////////
+        //         case ModbusAddr_RL1_StartTime_hh:
+        //         case ModbusAddr_RL1_StartTime_mm:
+        //         case ModbusAddr_RL1_StartTime_ss:
+        //         case ModbusAddr_RL1_EndTime_hh:
+        //         case ModbusAddr_RL1_EndTime_mm:
+        //         case ModbusAddr_RL1_EndTime_ss:
+        //         case ModbusAddr_RL2_StartTime_hh:
+        //         case ModbusAddr_RL2_StartTime_mm:
+        //         case ModbusAddr_RL2_StartTime_ss:
+        //         case ModbusAddr_RL2_EndTime_hh:
+        //         case ModbusAddr_RL2_EndTime_mm:
+        //         case ModbusAddr_RL2_EndTime_ss:
+        //         {
+        //             const RelayScheduleHmsStorage::WriteResult result =
+        //                 relayScheduleStorage.handleModbusWrite(modbusFrame.address);
+        //             if (result == RelayScheduleHmsStorage::WriteResult::Updated)
+        //                 Update_Time_From_Modbus();
+        //         }
+        //         break;
+        //         /////////////////////////////////////
+        //         case ModbusAddr_RTC_Hour:
+        //         case ModbusAddr_RTC_Minute:
+        //         case ModbusAddr_RTC_Second:
+        //             if (Set_RTC_From_Modbus())
+        //             {
+        //                 dbg.println("RTC Time Updated: ", rtc.readTimeString());
+        //             }
+        //             else
+        //             {
+        //                 dbg.println("RTC Time Update ERROR");
+        //                 Update_RTC_Registers();
+        //             }
+        //         break;
+        //         /////////////////////////////////////
+        //         case ModbusAddr_RTC_Day:
+        //         case ModbusAddr_RTC_Month:
+        //         case ModbusAddr_RTC_Year:
+        //             if (Set_RTC_Date_From_Modbus())
+        //             {
+        //                 dbg.println("RTC Date Updated: ", rtc.readDateTimeString());
+        //             }
+        //             else
+        //             {
+        //                 dbg.println("RTC Date Update ERROR");
+        //                 Update_RTC_Registers();
+        //             }
+        //         break;
+        //         /////////////////////////////////////
+        //         default:
+        //         dbg.print("Unhandled Register Address: ");
+        //         break;
+        //     }
+        // } else {
+        //     dbg.print("Unhandled Modbus Function: ");
+        //     // dbg.println(modbusFrame.function, HEX);
+        // }   
     }
 //__________________________________________________________________________________________
 bool modbusSaveToEEPROM(void)
 {
-    return relayScheduleStorage.persistAll();
+    return false;
 } 
 //__________________________________________________________________________________________
 bool LoadModbusConfigFromEEPROM(void)
 {
-    return relayScheduleStorage.loadAll();
+    byte data1[6];
+    eeprom.readBytes(ModbusAddr_RL1_StartTime_hh, data1, sizeof(data1));
+
+    for(int i=0;i<6;i++)
+     {
+        modbusMemory[ModbusAddr_RL1_StartTime_hh+i] = data1[i];
+        // dbg.print(",",data1[i]);
+     }
+     //////////////////////////////////////////////////////////////////////
+    eeprom.readBytes(ModbusAddr_RL2_StartTime_hh, data1, sizeof(data1));
+    for(int i=0;i<6;i++)
+     {
+        modbusMemory[ModbusAddr_RL2_StartTime_hh+i] = data1[i];
+     }
+    return true;
 }
 //__________________________________________________________________________________________
 void Test_Data_Save_To_Modbus(void)
@@ -333,29 +564,134 @@ void Test_Data_Save_To_Modbus(void)
     uint32_t val;
 
     val=Utils::timeStringToSeconds("17:00:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_StartTime,val);
+    modbusMemory[ModbusAddr_RL1_StartTime_hh] = val / 3600UL;
+    modbusMemory[ModbusAddr_RL1_StartTime_mm] = (val % 3600UL) / 60UL;
+    modbusMemory[ModbusAddr_RL1_StartTime_ss] = val % 60UL;
 
     val=Utils::timeStringToSeconds("19:30:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_EndTime,val);
+    modbusMemory[ModbusAddr_RL1_EndTime_hh] = val / 3600UL;
+    modbusMemory[ModbusAddr_RL1_EndTime_mm] = (val % 3600UL) / 60UL;
+    modbusMemory[ModbusAddr_RL1_EndTime_ss] = val % 60UL;
     
     val=Utils::timeStringToSeconds("19:35:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_StartTime,val);
+    modbusMemory[ModbusAddr_RL2_StartTime_hh] = val / 3600UL;
+    modbusMemory[ModbusAddr_RL2_StartTime_mm] = (val % 3600UL) / 60UL;
+    modbusMemory[ModbusAddr_RL2_StartTime_ss] = val % 60UL;
 
     val=Utils::timeStringToSeconds("23:00:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_EndTime,val);
+    modbusMemory[ModbusAddr_RL2_EndTime_hh] = val / 3600UL;
+    modbusMemory[ModbusAddr_RL2_EndTime_mm] = (val % 3600UL) / 60UL;
+    modbusMemory[ModbusAddr_RL2_EndTime_ss] = val % 60UL;
 }
 //__________________________________________________________________________________________
 void Update_Time_From_Modbus(void)
 {
-    const uint32_t rl1On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_StartTime);
-    const uint32_t rl1Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_EndTime);
-    const uint32_t rl2On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_StartTime);
-    const uint32_t rl2Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_EndTime);
+    uint16_t onHour = modbusMemory[ModbusAddr_RL1_StartTime_hh];
+    uint16_t onMinute = modbusMemory[ModbusAddr_RL1_StartTime_mm];
+    uint16_t onSecond = modbusMemory[ModbusAddr_RL1_StartTime_ss];
+    uint16_t offHour = modbusMemory[ModbusAddr_RL1_EndTime_hh];
+    uint16_t offMinute = modbusMemory[ModbusAddr_RL1_EndTime_mm];
+    uint16_t offSecond = modbusMemory[ModbusAddr_RL1_EndTime_ss];
 
-    if (RelayScheduleStorage::isValid(rl1On)) RL1_Time.set_on_time(rl1On);
-    if (RelayScheduleStorage::isValid(rl1Off)) RL1_Time.set_off_time(rl1Off);
-    if (RelayScheduleStorage::isValid(rl2On)) RL2_Time.set_on_time(rl2On);
-    if (RelayScheduleStorage::isValid(rl2Off)) RL2_Time.set_off_time(rl2Off);
+    uint32_t onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
+                             static_cast<uint32_t>(onMinute) * 60UL + onSecond;
+    uint32_t offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
+                              static_cast<uint32_t>(offMinute) * 60UL + offSecond;
+
+    RL1_Time.set_on_time(onTimeSeconds);
+    RL1_Time.set_off_time(offTimeSeconds);
+    /////////////////////////////////////////////
+    onHour = modbusMemory[ModbusAddr_RL2_StartTime_hh];
+    onMinute = modbusMemory[ModbusAddr_RL2_StartTime_mm];
+    onSecond = modbusMemory[ModbusAddr_RL2_StartTime_ss];
+    offHour = modbusMemory[ModbusAddr_RL2_EndTime_hh];
+    offMinute = modbusMemory[ModbusAddr_RL2_EndTime_mm];
+    offSecond = modbusMemory[ModbusAddr_RL2_EndTime_ss];
+
+    onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
+                                   static_cast<uint32_t>(onMinute) * 60UL + onSecond;
+    offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
+                                    static_cast<uint32_t>(offMinute) * 60UL + offSecond;
+
+    RL2_Time.set_on_time(onTimeSeconds);
+    RL2_Time.set_off_time(offTimeSeconds);    
+}
+//__________________________________________________________________________________________
+bool Update_Relay1_Time_From_Modbus(void)
+{
+    const uint16_t onHour = modbusMemory[ModbusAddr_RL1_StartTime_hh];
+    const uint16_t onMinute = modbusMemory[ModbusAddr_RL1_StartTime_mm];
+    const uint16_t onSecond = modbusMemory[ModbusAddr_RL1_StartTime_ss];
+    const uint16_t offHour = modbusMemory[ModbusAddr_RL1_EndTime_hh];
+    const uint16_t offMinute = modbusMemory[ModbusAddr_RL1_EndTime_mm];
+    const uint16_t offSecond = modbusMemory[ModbusAddr_RL1_EndTime_ss];
+
+    const uint32_t onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
+                                   static_cast<uint32_t>(onMinute) * 60UL + onSecond;
+    const uint32_t offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
+                                    static_cast<uint32_t>(offMinute) * 60UL + offSecond;
+
+    RL1_Time.set_on_time(onTimeSeconds);
+    RL1_Time.set_off_time(offTimeSeconds);
+
+    // dbg.println("Relay 1 EEPROM Write Verified");
+
+    uint8_t data[6];
+
+     data[0] = static_cast<uint8_t>(onHour);
+     data[1] = static_cast<uint8_t>(onMinute);
+     data[2] = static_cast<uint8_t>(onSecond);
+     data[3] = static_cast<uint8_t>(offHour);
+     data[4] = static_cast<uint8_t>(offMinute);
+     data[5] = static_cast<uint8_t>(offSecond);
+
+     for(int i=0;i<6;i++)
+     {
+        dbg.print(",",data[i]);
+     }
+
+    eeprom.writeBytes(ModbusAddr_RL1_StartTime_hh, data, sizeof(data));
+
+    byte data1[6];
+    eeprom.readBytes(ModbusAddr_RL1_StartTime_hh, data1, sizeof(data1));
+
+    for(int i=0;i<6;i++)
+     {
+        dbg.print(",",data1[i]);
+     }
+
+    return true;
+}
+//__________________________________________________________________________________________
+bool Update_Relay2_Time_From_Modbus(void)
+{
+    const uint16_t onHour = modbusMemory[ModbusAddr_RL2_StartTime_hh];
+    const uint16_t onMinute = modbusMemory[ModbusAddr_RL2_StartTime_mm];
+    const uint16_t onSecond = modbusMemory[ModbusAddr_RL2_StartTime_ss];
+    const uint16_t offHour = modbusMemory[ModbusAddr_RL2_EndTime_hh];
+    const uint16_t offMinute = modbusMemory[ModbusAddr_RL2_EndTime_mm];
+    const uint16_t offSecond = modbusMemory[ModbusAddr_RL2_EndTime_ss];
+
+    const uint32_t onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
+                                   static_cast<uint32_t>(onMinute) * 60UL + onSecond;
+    const uint32_t offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
+                                    static_cast<uint32_t>(offMinute) * 60UL + offSecond;
+
+    RL2_Time.set_on_time(onTimeSeconds);
+    RL2_Time.set_off_time(offTimeSeconds);
+
+     uint8_t data[6];
+
+     data[0] = static_cast<uint8_t>(onHour);
+     data[1] = static_cast<uint8_t>(onMinute);
+     data[2] = static_cast<uint8_t>(onSecond);
+     data[3] = static_cast<uint8_t>(offHour);
+     data[4] = static_cast<uint8_t>(offMinute);
+     data[5] = static_cast<uint8_t>(offSecond);
+
+    eeprom.writeBytes(ModbusAddr_RL2_StartTime_hh, data, sizeof(data));
+
+    return true;
 }
 //__________________________________________________________________________________________
 void Update_RTC_Registers(void)

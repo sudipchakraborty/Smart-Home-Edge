@@ -23,6 +23,9 @@ uint32_t Hex_HHMM_ToSeconds(uint16_t regValue);
 uint32_t Get_StrHHMM_ToSeconds(const char *timeStr);
 uint32_t Get_StrHHMMSS_ToSeconds(const char *timeStr);
 uint32_t DT_String_To_Seconds_From_TimePart(const char *dt);
+bool parseDDMMYYYY_HHMMSS(const char *dateTime,
+                          uint16_t &year, uint8_t &month, uint8_t &day,
+                          uint8_t &hour, uint8_t &minute, uint8_t &second);
 void storeUint32ToModbus(uint16_t *modbusMemory,uint16_t startAddr,uint32_t value);
 uint32_t readUint32FromModbus(uint16_t *modbusMemory,uint16_t startAddr);
 String secondsToHHMMSS(uint32_t totalSeconds);

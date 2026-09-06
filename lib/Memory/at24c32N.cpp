@@ -4,6 +4,8 @@
 
 /* -------- Internal Helpers -------- */
 
+static uint8_t activeI2cAddress = AT24C32_I2C_ADDR;
+
 static inline uint16_t regToByte(uint16_t reg)
 {
     return reg * 2;
@@ -11,7 +13,7 @@ static inline uint16_t regToByte(uint16_t reg)
 
 bool i2cWrite(uint16_t memAddr, const uint8_t* data, size_t len)
 {
-    Wire.beginTransmission(AT24C32_I2C_ADDR);
+    Wire.beginTransmission(activeI2cAddress);
     Wire.write((memAddr >> 8) & 0xFF);
     Wire.write(memAddr & 0xFF);
 
@@ -23,13 +25,13 @@ bool i2cWrite(uint16_t memAddr, const uint8_t* data, size_t len)
 
 bool i2cRead(uint16_t memAddr, uint8_t* data, size_t len)
 {
-    Wire.beginTransmission(AT24C32_I2C_ADDR);
+    Wire.beginTransmission(activeI2cAddress);
     Wire.write((memAddr >> 8) & 0xFF);
     Wire.write(memAddr & 0xFF);
     if (Wire.endTransmission(false) != 0)
         return false;
 
-    Wire.requestFrom(static_cast<uint8_t>(AT24C32_I2C_ADDR), static_cast<uint8_t>(len));
+    Wire.requestFrom(activeI2cAddress, static_cast<uint8_t>(len));
     for (size_t i = 0; i < len; i++)
     {
         if (!Wire.available())
@@ -41,14 +43,21 @@ bool i2cRead(uint16_t memAddr, uint8_t* data, size_t len)
 
 /* -------- Public API -------- */
 
-void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint32_t freq)
+void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint8_t deviceAddress,
+                  uint32_t freq)
 {
+    activeI2cAddress = deviceAddress;
     Wire.begin(sdaPin, sclPin, freq);
+}
+
+uint8_t AT24C32_GetAddress()
+{
+    return activeI2cAddress;
 }
 
 bool AT24C32_Probe()
 {
-    Wire.beginTransmission(AT24C32_I2C_ADDR);
+    Wire.beginTransmission(activeI2cAddress);
     return Wire.endTransmission() == 0;
 }
 

@@ -11,9 +11,10 @@ EEPROMStorage::EEPROMStorage()
  * ------------------------------------------------- */
 bool EEPROMStorage::begin(uint8_t sdaPin,
                           uint8_t sclPin,
+                          uint8_t deviceAddress,
                           uint32_t freq)
 {
-    AT24C32_Init(sclPin, sdaPin, freq);
+    AT24C32_Init(sclPin, sdaPin, deviceAddress, freq);
     return AT24C32_Probe();
 }
 

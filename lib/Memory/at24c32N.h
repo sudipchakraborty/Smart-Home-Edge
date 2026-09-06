@@ -16,7 +16,9 @@
 /* -------- Public API -------- */
 
 // Must be called once
-void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint32_t freq);
+void AT24C32_Init(uint8_t sclPin, uint8_t sdaPin, uint8_t deviceAddress,
+                  uint32_t freq);
+uint8_t AT24C32_GetAddress();
 bool AT24C32_Probe();
 
 // Single 16-bit register read
