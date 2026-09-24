@@ -71,6 +71,16 @@
 #define ModbusAddr_RTC_Year_Reg          27
 
 #define ModbusAddr_Beep                  28
+
+// Device identity registers (ASCII, one character per register).
+#define ModbusAddr_DeviceId_First        29
+#define ModbusAddr_DeviceId_Last         31
+#define ModbusAddr_DeviceName_First      32
+#define ModbusAddr_DeviceName_Last       50
+
+// Dedicated EEPROM byte area; kept separate from relay/RTC storage.
+#define EEPROM_Addr_DeviceId             128
+#define EEPROM_Addr_DeviceName           132
 /////////////////////////////////////////////////////
 #define EEPROM_Addr_RL1_OnTime      ModbusAddr_RL1_StartTime_hh 
 #define EEPROM_Addr_RL1_OffTime     ModbusAddr_RL1_EndTime_hh
@@ -100,6 +110,8 @@ void Update_RTC_Registers(void);
 bool Set_RTC_From_Modbus(void);
 bool Set_RTC_Date_From_Modbus(void);
 void Test_Data_Save_To_Modbus(void);
+bool LoadDeviceIdentityFromEEPROM(void);
+bool SaveDeviceIdentityToEEPROM(void);
 ///////////////////////////
 
 

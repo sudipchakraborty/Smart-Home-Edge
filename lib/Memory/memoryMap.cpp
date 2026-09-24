@@ -1,5 +1,15 @@
 #include "memoryMap.h"
+#include <cstddef>
 
+namespace
+{
+void loadASCII(uint16_t firstRegister, uint16_t lastRegister, const char *value)
+{
+    const size_t capacity = lastRegister - firstRegister + 1;
+    for (size_t i = 0; i < capacity; ++i)
+        modbusMemory[firstRegister + i] = value[i] ? static_cast<uint8_t>(value[i]) : ' ';
+}
+}
 
 
 void ModbusMemory_LoadTestPattern()
@@ -20,6 +30,20 @@ void ModbusMemory_LoadTestPattern()
 // ModbusData_t modbusData = {0};
 
 uint16_t modbusMemory[MODBUS_MEM_SIZE] = {0};
+
+void ModbusMemory_LoadProductIdentity()
+{
+    // Load the configured strings once during startup. Each register contains
+    // one ASCII character, allowing a standard function 03 read to fetch them.
+    loadASCII(MODBUS_PRODUCT_ID_FIRST, MODBUS_PRODUCT_ID_LAST, "LPTM-V1.0");
+    loadASCII(MODBUS_SERIAL_NUMBER_FIRST, MODBUS_SERIAL_NUMBER_LAST, "IN-001-2609=0001");
+}
+
+bool ModbusMemory_IsReadOnly(uint16_t address)
+{
+    return (address >= MODBUS_PRODUCT_ID_FIRST && address <= MODBUS_PRODUCT_ID_LAST) ||
+           (address >= MODBUS_SERIAL_NUMBER_FIRST && address <= MODBUS_SERIAL_NUMBER_LAST);
+}
 
 /* -------------------------------------------------
  * Read Holding Register

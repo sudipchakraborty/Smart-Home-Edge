@@ -23,9 +23,15 @@
 // extern ModbusData_t modbusData;
 
 #define MODBUS_MEM_SIZE 200
+#define MODBUS_PRODUCT_ID_FIRST 51
+#define MODBUS_PRODUCT_ID_LAST 70
+#define MODBUS_SERIAL_NUMBER_FIRST 71
+#define MODBUS_SERIAL_NUMBER_LAST 90
 extern uint16_t modbusMemory[MODBUS_MEM_SIZE];
 
 void ModbusMemory_LoadTestPattern();
+void ModbusMemory_LoadProductIdentity();
+bool ModbusMemory_IsReadOnly(uint16_t address);
 
 /* -------- API (DECLARATION ONLY) -------- */
 // uint16_t modbusMemoryRead(uint16_t address);

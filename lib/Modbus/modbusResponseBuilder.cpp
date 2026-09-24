@@ -112,6 +112,9 @@ char Modbus_BuildResponse(const ModbusASCIIFrame* frame,
             if (frame->address >= MODBUS_MEM_SIZE)
                 return buildException(frame->slaveId, 0x06, 0x02, responseBuffer, bufferSize);
 
+            if (ModbusMemory_IsReadOnly(frame->address))
+                return buildException(frame->slaveId, 0x06, 0x02, responseBuffer, bufferSize);
+
             modbusMemory[frame->address] = frame->value;
 
             bin[0] = frame->slaveId;

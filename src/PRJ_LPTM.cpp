@@ -49,6 +49,30 @@ EEPROMStorage eeprom;
 int countValue = 0;
 uint16_t temp[2];
 long Modbus_REceive_PacketCount=0;
+bool eepromReady = false;
+
+namespace
+{
+void loadIdentityDefaults()
+{
+    modbusMemory[ModbusAddr_DeviceId_First] = '0';
+    modbusMemory[ModbusAddr_DeviceId_First + 1] = '0';
+    modbusMemory[ModbusAddr_DeviceId_Last] = '1';
+
+    const char *defaultName = "BATHROOM";
+    for (uint16_t address = ModbusAddr_DeviceName_First;
+         address <= ModbusAddr_DeviceName_Last; ++address)
+    {
+        const uint16_t offset = address - ModbusAddr_DeviceName_First;
+        modbusMemory[address] = defaultName[offset] ? defaultName[offset] : ' ';
+    }
+}
+
+bool validIdentityByte(uint8_t value)
+{
+    return value >= 0x20 && value <= 0x7E;
+}
+}
 ////////////////////////////////////////////////////////////////////////////////////
 void LPTM_setup()
 {
@@ -64,13 +88,20 @@ void LPTM_setup()
     SecondTick.set_time(1000);
     SecondTick.start();
 
-    const bool eepromReady = eeprom.begin(21, 22, LPTM_EEPROM_I2C_ADDR);
+    eepromReady = eeprom.begin(21, 22, LPTM_EEPROM_I2C_ADDR);
     if (eepromReady)
         dbg.println("AT24C32 detected at project I2C address 0x50");
     else
         dbg.println("EEPROM PROBE ERROR: AT24C32 not detected at project I2C address 0x50");
 
     // Discover_I2C_Devices();
+
+    // Populate identity registers before RS485 handling starts. A Modbus
+    // function 03 request now returns these ASCII characters directly.
+    ModbusMemory_LoadProductIdentity();
+    dbg.println("Product ID and serial number loaded into read-only Modbus registers");
+    if (!LoadDeviceIdentityFromEEPROM())
+        dbg.println("Device ID/name EEPROM data invalid; defaults loaded");
     
     delay(1000);
     /////////////////////////////
@@ -349,6 +380,14 @@ void ModbusActionHandler(void)
                     bzr.beep();
                     dbg.println("Buzzer Beep Triggered");
                 break;
+                case ModbusAddr_DeviceId_First:
+                case ModbusAddr_DeviceId_First + 1:
+                case ModbusAddr_DeviceId_Last:
+                case ModbusAddr_DeviceName_First ... ModbusAddr_DeviceName_Last:
+                    modbusMemory[modbusFrame.address] = modbusFrame.value & 0x00FF;
+                    if (!SaveDeviceIdentityToEEPROM())
+                        dbg.println("Device ID/name EEPROM save ERROR");
+                break;
                 ////////////////////////////////////
                 case ModbusAddr_RL1_StartTime_hh: modbusMemory[ModbusAddr_RL1_StartTime_hh] = modbusFrame.value; break;
                 case ModbusAddr_RL1_StartTime_mm: modbusMemory[ModbusAddr_RL1_StartTime_mm] = modbusFrame.value; break;
@@ -538,7 +577,61 @@ void ModbusActionHandler(void)
 bool modbusSaveToEEPROM(void)
 {
     return false;
-} 
+}
+
+bool LoadDeviceIdentityFromEEPROM(void)
+{
+    if (!eepromReady)
+    {
+        loadIdentityDefaults();
+        return false;
+    }
+
+    uint8_t deviceId[3] = {0};
+    uint8_t deviceName[ModbusAddr_DeviceName_Last - ModbusAddr_DeviceName_First + 1] = {0};
+    const bool idRead = eeprom.readBytes(EEPROM_Addr_DeviceId, deviceId, sizeof(deviceId));
+    const bool nameRead = eeprom.readBytes(EEPROM_Addr_DeviceName, deviceName, sizeof(deviceName));
+
+    bool valid = idRead && nameRead;
+    for (uint8_t value : deviceId)
+        valid = valid && validIdentityByte(value);
+
+    bool hasNameCharacter = false;
+    for (uint8_t value : deviceName)
+    {
+        valid = valid && (value == ' ' || validIdentityByte(value));
+        hasNameCharacter = hasNameCharacter || (value != ' ');
+    }
+    valid = valid && hasNameCharacter;
+
+    if (!valid)
+    {
+        loadIdentityDefaults();
+        return false;
+    }
+
+    for (uint8_t i = 0; i < sizeof(deviceId); ++i)
+        modbusMemory[ModbusAddr_DeviceId_First + i] = deviceId[i];
+    for (uint8_t i = 0; i < sizeof(deviceName); ++i)
+        modbusMemory[ModbusAddr_DeviceName_First + i] = deviceName[i];
+    return true;
+}
+
+bool SaveDeviceIdentityToEEPROM(void)
+{
+    if (!eepromReady)
+        return false;
+
+    uint8_t deviceId[3];
+    uint8_t deviceName[ModbusAddr_DeviceName_Last - ModbusAddr_DeviceName_First + 1];
+    for (uint8_t i = 0; i < sizeof(deviceId); ++i)
+        deviceId[i] = static_cast<uint8_t>(modbusMemory[ModbusAddr_DeviceId_First + i]);
+    for (uint8_t i = 0; i < sizeof(deviceName); ++i)
+        deviceName[i] = static_cast<uint8_t>(modbusMemory[ModbusAddr_DeviceName_First + i]);
+
+    return eeprom.writeBytes(EEPROM_Addr_DeviceId, deviceId, sizeof(deviceId)) &&
+           eeprom.writeBytes(EEPROM_Addr_DeviceName, deviceName, sizeof(deviceName));
+}
 //__________________________________________________________________________________________
 bool LoadModbusConfigFromEEPROM(void)
 {
