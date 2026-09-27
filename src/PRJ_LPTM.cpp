@@ -1,5 +1,5 @@
 #include "ProjectSelection.h"
-#ifdef LowPowerTimerModule
+#ifdef LowPowerTimerModule_V1
 
 #include "PRJ_LPTM.h"
 #include "rs485.h"
@@ -46,13 +46,28 @@ int FSMState;
 SimulatedClock simClock;
 EEPROMStorage eeprom;
 
-int countValue = 0;
+int countValue;
 uint16_t temp[2];
 long Modbus_REceive_PacketCount=0;
 bool eepromReady = false;
 
 namespace
 {
+void updateRelayStatusRegisters()
+{
+    modbusMemory[ModbusAddr_Relay1_Status] = digitalRead(RL1) == LOW ? 'O' : 'F';
+    modbusMemory[ModbusAddr_Relay2_Status] = digitalRead(RL2) == LOW ? 'O' : 'F';
+}
+
+bool resetCommandComplete()
+{
+    static const char command[] = "RESET";
+    for (uint16_t address = ModbusAddr_Reset_First; address <= ModbusAddr_Reset_Last; ++address)
+        if (modbusMemory[address] != static_cast<uint16_t>(command[address - ModbusAddr_Reset_First]))
+            return false;
+    return true;
+}
+
 void loadIdentityDefaults()
 {
     modbusMemory[ModbusAddr_DeviceId_First] = '0';
@@ -102,6 +117,7 @@ void LPTM_setup()
     dbg.println("Product ID and serial number loaded into read-only Modbus registers");
     if (!LoadDeviceIdentityFromEEPROM())
         dbg.println("Device ID/name EEPROM data invalid; defaults loaded");
+    updateRelayStatusRegisters();
     
     delay(1000);
     /////////////////////////////
@@ -168,6 +184,7 @@ void LPTM_loop()
 {  
     st.blink();
     StateMachine();
+    updateRelayStatusRegisters();
     Modbus_Handler();
 }
 //__________________________________________________________________________________________
@@ -387,6 +404,15 @@ void ModbusActionHandler(void)
                     modbusMemory[modbusFrame.address] = modbusFrame.value & 0x00FF;
                     if (!SaveDeviceIdentityToEEPROM())
                         dbg.println("Device ID/name EEPROM save ERROR");
+                break;
+                case ModbusAddr_Reset_First ... ModbusAddr_Reset_Last:
+                    modbusMemory[modbusFrame.address] = modbusFrame.value & 0x00FF;
+                    if (resetCommandComplete())
+                    {
+                        dbg.println("Modbus RESET command accepted");
+                        delay(50);
+                        ESP.restart();
+                    }
                 break;
                 ////////////////////////////////////
                 case ModbusAddr_RL1_StartTime_hh: modbusMemory[ModbusAddr_RL1_StartTime_hh] = modbusFrame.value; break;
@@ -719,15 +745,14 @@ bool Update_Relay1_Time_From_Modbus(void)
     const uint16_t offMinute = modbusMemory[ModbusAddr_RL1_EndTime_mm];
     const uint16_t offSecond = modbusMemory[ModbusAddr_RL1_EndTime_ss];
 
+    if (!eepromReady || onHour > 23 || onMinute > 59 || onSecond > 59 ||
+        offHour > 23 || offMinute > 59 || offSecond > 59)
+        return false;
+
     const uint32_t onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
                                    static_cast<uint32_t>(onMinute) * 60UL + onSecond;
     const uint32_t offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
                                     static_cast<uint32_t>(offMinute) * 60UL + offSecond;
-
-    RL1_Time.set_on_time(onTimeSeconds);
-    RL1_Time.set_off_time(offTimeSeconds);
-
-    // dbg.println("Relay 1 EEPROM Write Verified");
 
     uint8_t data[6];
 
@@ -738,21 +763,11 @@ bool Update_Relay1_Time_From_Modbus(void)
      data[4] = static_cast<uint8_t>(offMinute);
      data[5] = static_cast<uint8_t>(offSecond);
 
-     for(int i=0;i<6;i++)
-     {
-        dbg.print(",",data[i]);
-     }
+    if (!eeprom.writeBytes(ModbusAddr_RL1_StartTime_hh, data, sizeof(data)))
+        return false;
 
-    eeprom.writeBytes(ModbusAddr_RL1_StartTime_hh, data, sizeof(data));
-
-    byte data1[6];
-    eeprom.readBytes(ModbusAddr_RL1_StartTime_hh, data1, sizeof(data1));
-
-    for(int i=0;i<6;i++)
-     {
-        dbg.print(",",data1[i]);
-     }
-
+    RL1_Time.set_on_time(onTimeSeconds);
+    RL1_Time.set_off_time(offTimeSeconds);
     return true;
 }
 //__________________________________________________________________________________________
@@ -765,13 +780,14 @@ bool Update_Relay2_Time_From_Modbus(void)
     const uint16_t offMinute = modbusMemory[ModbusAddr_RL2_EndTime_mm];
     const uint16_t offSecond = modbusMemory[ModbusAddr_RL2_EndTime_ss];
 
+    if (!eepromReady || onHour > 23 || onMinute > 59 || onSecond > 59 ||
+        offHour > 23 || offMinute > 59 || offSecond > 59)
+        return false;
+
     const uint32_t onTimeSeconds = static_cast<uint32_t>(onHour) * 3600UL +
                                    static_cast<uint32_t>(onMinute) * 60UL + onSecond;
     const uint32_t offTimeSeconds = static_cast<uint32_t>(offHour) * 3600UL +
                                     static_cast<uint32_t>(offMinute) * 60UL + offSecond;
-
-    RL2_Time.set_on_time(onTimeSeconds);
-    RL2_Time.set_off_time(offTimeSeconds);
 
      uint8_t data[6];
 
@@ -782,8 +798,11 @@ bool Update_Relay2_Time_From_Modbus(void)
      data[4] = static_cast<uint8_t>(offMinute);
      data[5] = static_cast<uint8_t>(offSecond);
 
-    eeprom.writeBytes(ModbusAddr_RL2_StartTime_hh, data, sizeof(data));
+    if (!eeprom.writeBytes(ModbusAddr_RL2_StartTime_hh, data, sizeof(data)))
+        return false;
 
+    RL2_Time.set_on_time(onTimeSeconds);
+    RL2_Time.set_off_time(offTimeSeconds);
     return true;
 }
 //__________________________________________________________________________________________

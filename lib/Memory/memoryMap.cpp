@@ -42,7 +42,8 @@ void ModbusMemory_LoadProductIdentity()
 bool ModbusMemory_IsReadOnly(uint16_t address)
 {
     return (address >= MODBUS_PRODUCT_ID_FIRST && address <= MODBUS_PRODUCT_ID_LAST) ||
-           (address >= MODBUS_SERIAL_NUMBER_FIRST && address <= MODBUS_SERIAL_NUMBER_LAST);
+           (address >= MODBUS_SERIAL_NUMBER_FIRST && address <= MODBUS_SERIAL_NUMBER_LAST) ||
+           address == 96 || address == 97;
 }
 
 /* -------------------------------------------------

@@ -20,8 +20,6 @@
 #define RL1 5
 #define RL2 18
 #define LED_PIN 2
-
-
 ///////////////////////////////////////////////////////
 #define ModbusAddr_Output   0b0000000000000000
 ////Hardware pin definitions
@@ -77,6 +75,12 @@
 #define ModbusAddr_DeviceId_Last         31
 #define ModbusAddr_DeviceName_First      32
 #define ModbusAddr_DeviceName_Last       50
+
+// System operation and read-only relay status registers (ASCII, one character per register).
+#define ModbusAddr_Reset_First            91
+#define ModbusAddr_Reset_Last             95
+#define ModbusAddr_Relay1_Status          96
+#define ModbusAddr_Relay2_Status          97
 
 // Dedicated EEPROM byte area; kept separate from relay/RTC storage.
 #define EEPROM_Addr_DeviceId             128

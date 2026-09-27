@@ -37,3 +37,26 @@
 
 - Repository was synchronized with `origin/main` before publication.
 - The Modbus identity and EEPROM persistence changes were committed and pushed from `main`.
+## 2026-09-27 - Modbus reset command and relay status registers
+
+- Added reset command registers `91..95`, accepting the ASCII sequence `R`, `E`, `S`, `E`, `T` through Modbus function `06`.
+- Added read-only relay status registers `96` and `97`, returning ASCII `O` when Relay 1/2 is active and `F` otherwise.
+- Implemented the map in both Low Power Timer Module V1 and V2 handlers; PlatformIO build verification and hardware readback remain separate checks.
+## 2026-09-27 - Fix V2 relay timer project selection
+
+- Found that the `lptm-v2` PlatformIO environment defined V2 in build flags while `include/ProjectSelection.h` unconditionally defined V1.
+- This compiled both relay-timer projects together, preventing the frontend-backed V2 Modbus/EEPROM save path from building.
+- Planned change: make the default V1 selection conditional so the V2 build flag selects only V2.
+
+## 2026-09-27 - Validate V1 relay schedule save triggers
+
+- V1 uses Modbus register `7` to save Relay 1 and register `14` to save Relay 2.
+- The trigger handlers previously returned success without checking EEPROM availability or write status.
+- Planned change: validate HH:MM:SS fields and report the actual EEPROM save result.
+
+## 2026-09-27 - Planned V1/V2 shared Modbus register map alignment
+
+- The supplied `Modbus Register Map.pptx` is the source of truth for both firmware variants.
+- Align V2 relay schedules with the shared HH/MM/SS map: Relay 1 `1..6` with trigger `7`, Relay 2 `8..13` with trigger `14`.
+- Preserve the shared RTC map `15..27`, output register `0`, identity registers `29..90`, reset command `91..95`, and relay status registers `96..97`.
+- Remove V2-only packed 32-bit schedule assumptions and verify both PlatformIO environments.

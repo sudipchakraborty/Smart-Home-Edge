@@ -37,10 +37,20 @@
 
 /////////////////////////
 #define ModbusAddr_Output 0
-#define ModbusAddr_RL1_StartTime 1  // 2 uint16 to store second value
-#define ModbusAddr_RL1_EndTime 3
-#define ModbusAddr_RL2_StartTime 5
-#define ModbusAddr_RL2_EndTime 7
+#define ModbusAddr_RL1_StartTime_hh 1
+#define ModbusAddr_RL1_StartTime_mm 2
+#define ModbusAddr_RL1_StartTime_ss 3
+#define ModbusAddr_RL1_EndTime_hh 4
+#define ModbusAddr_RL1_EndTime_mm 5
+#define ModbusAddr_RL1_EndTime_ss 6
+#define ModbusAddr_RL1_Time_Update 7
+#define ModbusAddr_RL2_StartTime_hh 8
+#define ModbusAddr_RL2_StartTime_mm 9
+#define ModbusAddr_RL2_StartTime_ss 10
+#define ModbusAddr_RL2_EndTime_hh 11
+#define ModbusAddr_RL2_EndTime_mm 12
+#define ModbusAddr_RL2_EndTime_ss 13
+#define ModbusAddr_RL2_Time_Update 14
 //////////////////////////
 #define Modbus_RL1 0x01  
 #define Modbus_RL2 0x02
@@ -48,6 +58,12 @@
 #define Modbus_LED_TX 0x08
 #define Modbus_LED_RX 0x10
 //////////////////////////
+// System operation and read-only relay status registers (ASCII, one character per register).
+#define ModbusAddr_Reset_First 91
+#define ModbusAddr_Reset_Last 95
+#define ModbusAddr_Relay1_Status 96
+#define ModbusAddr_Relay2_Status 97
+
 #define EEPROM_Addr_RL1_OnTime 0  
 #define EEPROM_Addr_RL1_OffTime 4
 #define EEPROM_Addr_RL2_OnTime 8

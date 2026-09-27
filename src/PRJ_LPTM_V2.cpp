@@ -1,7 +1,7 @@
-
 #ifdef LowPowerTimerModule_V2
 
 #include "PRJ_LPTM_V2.h"
+
 #include "rs485.h"
 #include "modbusASCII.h"
 #include "modbusResponseBuilder.h"
@@ -27,7 +27,7 @@
 #include "DeviceID.h"
 #include "OTAManager.h"
 #include "I2CScanner.h"
-#include "RelayScheduleStorage.h"
+#include "RelayScheduleHmsStorage.h"
 
 // Service addresses:
 // Wi-Fi configuration: http://192.168.4.1
@@ -40,6 +40,24 @@ char txBuf[255];
 uint8_t rxBuf[255];
 ModbusASCII mb;
 ModbusASCIIFrame modbusFrame;
+
+namespace
+{
+void updateRelayStatusRegisters()
+{
+    modbusMemory[ModbusAddr_Relay1_Status] = digitalRead(RL1) == LOW ? 'O' : 'F';
+    modbusMemory[ModbusAddr_Relay2_Status] = digitalRead(RL2) == LOW ? 'O' : 'F';
+}
+
+bool resetCommandComplete()
+{
+    static const char command[] = "RESET";
+    for (uint16_t address = ModbusAddr_Reset_First; address <= ModbusAddr_Reset_Last; ++address)
+        if (modbusMemory[address] != static_cast<uint16_t>(command[address - ModbusAddr_Reset_First]))
+            return false;
+    return true;
+}
+}
 
 debug dbg;
 StatusBlink st;
@@ -68,14 +86,14 @@ static void relayScheduleDiagnostic(const String &message)
     dbg.println(message);
 }
 
-static const RelayScheduleDefinition relayScheduleDefinitions[] = {
-    {"Relay 1 ON", ModbusAddr_RL1_StartTime, EEPROM_Addr_RL1_OnTime},
-    {"Relay 1 OFF", ModbusAddr_RL1_EndTime, EEPROM_Addr_RL1_OffTime},
-    {"Relay 2 ON", ModbusAddr_RL2_StartTime, EEPROM_Addr_RL2_OnTime},
-    {"Relay 2 OFF", ModbusAddr_RL2_EndTime, EEPROM_Addr_RL2_OffTime},
+static const RelayScheduleHmsDefinition relayScheduleDefinitions[] = {
+    {"Relay 1 ON", ModbusAddr_RL1_StartTime_hh, ModbusAddr_RL1_StartTime_mm, ModbusAddr_RL1_StartTime_ss, EEPROM_Addr_RL1_OnTime},
+    {"Relay 1 OFF", ModbusAddr_RL1_EndTime_hh, ModbusAddr_RL1_EndTime_mm, ModbusAddr_RL1_EndTime_ss, EEPROM_Addr_RL1_OffTime},
+    {"Relay 2 ON", ModbusAddr_RL2_StartTime_hh, ModbusAddr_RL2_StartTime_mm, ModbusAddr_RL2_StartTime_ss, EEPROM_Addr_RL2_OnTime},
+    {"Relay 2 OFF", ModbusAddr_RL2_EndTime_hh, ModbusAddr_RL2_EndTime_mm, ModbusAddr_RL2_EndTime_ss, EEPROM_Addr_RL2_OffTime},
 };
 
-RelayScheduleStorage relayScheduleStorage(
+RelayScheduleHmsStorage relayScheduleStorage(
     eeprom, modbusMemory, relayScheduleDefinitions,
     sizeof(relayScheduleDefinitions) / sizeof(relayScheduleDefinitions[0]),
     relayScheduleDiagnostic);
@@ -88,8 +106,8 @@ DeviceID deviceId;
 OTAManager otaManager;
 bool networkServicesReady = false;
 
-int countValue = 0;
-uint16_t temp[2];
+extern int countValue;
+extern uint16_t temp[2];
 void saveRelayTimesFromWeb(uint32_t rl1On, uint32_t rl1Off,
                            uint32_t rl2On, uint32_t rl2Off);
 void alertOTAUpdateReceived();
@@ -154,6 +172,7 @@ void LPTM_setup_V2()
     relayScheduleStorage.begin();
     LoadModbusConfigFromEEPROM();
     Update_Time_From_Modbus();
+    updateRelayStatusRegisters();
     relayTimerUI.begin(RL1_Time.onTime, RL1_Time.offTime,
                        RL2_Time.onTime, RL2_Time.offTime,
                        saveRelayTimesFromWeb);
@@ -182,7 +201,7 @@ void LPTM_setup_V2()
 }
 //__________________________________________________________________________________________
 void LPTM_loop_V2()
-{  
+{
     if (!networkServicesReady && wifiModule.isConnected()) {
         networkServicesReady = true;
         internetClock.syncRtc(rtc, dbg,
@@ -191,7 +210,8 @@ void LPTM_loop_V2()
         dbg.println("Relay timer webpage: http://" + wifiModule.localIP().toString() + ":8080");
     }
     st.blink();
-    StateMachine(); 
+    StateMachine();
+    updateRelayStatusRegisters();
     Modbus_Handler();
     wifiSetupServer.handleClient();
     relayTimerUI.handleClient();
@@ -313,6 +333,7 @@ void ModbusActionHandler(void)
             switch(modbusFrame.address) 
             {
             case ModbusAddr_Output:
+                  modbusMemory[ModbusAddr_Output] = modbusFrame.value;
                   if(modbusFrame.value & Modbus_RL1) 
                   {
                     rl1.on();
@@ -340,19 +361,24 @@ void ModbusActionHandler(void)
                         dbg.println("Buzzer OFF");
                     }                
                 break;
+                case ModbusAddr_Reset_First ... ModbusAddr_Reset_Last:
+                    modbusMemory[modbusFrame.address] = modbusFrame.value & 0x00FF;
+                    if (resetCommandComplete())
+                    {
+                        dbg.println("Modbus RESET command accepted");
+                        delay(50);
+                        ESP.restart();
+                    }
+                break;
                 ////////////////////////////////////
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                case 8:
+                case ModbusAddr_RL1_StartTime_hh ... ModbusAddr_RL1_Time_Update:
+                case ModbusAddr_RL2_StartTime_hh ... ModbusAddr_RL2_Time_Update:
                 {
-                    const RelayScheduleStorage::WriteResult result =
-                        relayScheduleStorage.handleModbusWordWrite(modbusFrame.address);
-                    if (result == RelayScheduleStorage::WriteResult::Updated)
+                    const bool isTrigger = modbusFrame.address == ModbusAddr_RL1_Time_Update || modbusFrame.address == ModbusAddr_RL2_Time_Update;
+                    if (!isTrigger) break;
+                    const RelayScheduleHmsStorage::WriteResult result =
+                        relayScheduleStorage.handleModbusWrite(modbusFrame.address == ModbusAddr_RL1_Time_Update ? ModbusAddr_RL1_StartTime_hh : ModbusAddr_RL2_StartTime_hh);
+                    if (result == RelayScheduleHmsStorage::WriteResult::Updated)
                         Update_Time_From_Modbus();
                 }
                 break;
@@ -379,32 +405,34 @@ bool LoadModbusConfigFromEEPROM(void)
 //__________________________________________________________________________________________
 void Test_Data_Save_To_Modbus(void)
 {
-    uint32_t val;
-
-    val=Utils::timeStringToSeconds("17:00:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_StartTime,val);
-
-    val=Utils::timeStringToSeconds("19:30:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL1_EndTime,val);
-    
-    val=Utils::timeStringToSeconds("19:35:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_StartTime,val);
-
-    val=Utils::timeStringToSeconds("23:00:00");
-    Utils::storeUint32ToModbus(modbusMemory,ModbusAddr_RL2_EndTime,val);
+    const uint32_t values[] = {
+        Utils::timeStringToSeconds("17:00:00"), Utils::timeStringToSeconds("19:30:00"),
+        Utils::timeStringToSeconds("19:35:00"), Utils::timeStringToSeconds("23:00:00")
+    };
+    const uint16_t addresses[][3] = {
+        {ModbusAddr_RL1_StartTime_hh, ModbusAddr_RL1_StartTime_mm, ModbusAddr_RL1_StartTime_ss},
+        {ModbusAddr_RL1_EndTime_hh, ModbusAddr_RL1_EndTime_mm, ModbusAddr_RL1_EndTime_ss},
+        {ModbusAddr_RL2_StartTime_hh, ModbusAddr_RL2_StartTime_mm, ModbusAddr_RL2_StartTime_ss},
+        {ModbusAddr_RL2_EndTime_hh, ModbusAddr_RL2_EndTime_mm, ModbusAddr_RL2_EndTime_ss}
+    };
+    for (size_t index = 0; index < 4; ++index) {
+        modbusMemory[addresses[index][0]] = values[index] / 3600UL;
+        modbusMemory[addresses[index][1]] = (values[index] % 3600UL) / 60UL;
+        modbusMemory[addresses[index][2]] = values[index] % 60UL;
+    }
 }
 //__________________________________________________________________________________________
 void Update_Time_From_Modbus(void)
 {
-    const uint32_t rl1On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_StartTime);
-    const uint32_t rl1Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL1_EndTime);
-    const uint32_t rl2On = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_StartTime);
-    const uint32_t rl2Off = Utils::readUint32FromModbus(modbusMemory, ModbusAddr_RL2_EndTime);
+    const uint32_t rl1On = relayScheduleStorage.secondsAt(0);
+    const uint32_t rl1Off = relayScheduleStorage.secondsAt(1);
+    const uint32_t rl2On = relayScheduleStorage.secondsAt(2);
+    const uint32_t rl2Off = relayScheduleStorage.secondsAt(3);
 
-    if (RelayScheduleStorage::isValid(rl1On)) RL1_Time.set_on_time(rl1On);
-    if (RelayScheduleStorage::isValid(rl1Off)) RL1_Time.set_off_time(rl1Off);
-    if (RelayScheduleStorage::isValid(rl2On)) RL2_Time.set_on_time(rl2On);
-    if (RelayScheduleStorage::isValid(rl2Off)) RL2_Time.set_off_time(rl2Off);
+    if (rl1On <= 86399UL) RL1_Time.set_on_time(rl1On);
+    if (rl1Off <= 86399UL) RL1_Time.set_off_time(rl1Off);
+    if (rl2On <= 86399UL) RL2_Time.set_on_time(rl2On);
+    if (rl2Off <= 86399UL) RL2_Time.set_off_time(rl2Off);
 
     // Keep the webpage values current when a Modbus client changes the timers.
     relayTimerUI.setTimes(RL1_Time.onTime, RL1_Time.offTime,
@@ -414,10 +442,18 @@ void Update_Time_From_Modbus(void)
 void saveRelayTimesFromWeb(uint32_t rl1On, uint32_t rl1Off,
                            uint32_t rl2On, uint32_t rl2Off)
 {
-    Utils::storeUint32ToModbus(modbusMemory, ModbusAddr_RL1_StartTime, rl1On);
-    Utils::storeUint32ToModbus(modbusMemory, ModbusAddr_RL1_EndTime, rl1Off);
-    Utils::storeUint32ToModbus(modbusMemory, ModbusAddr_RL2_StartTime, rl2On);
-    Utils::storeUint32ToModbus(modbusMemory, ModbusAddr_RL2_EndTime, rl2Off);
+    const uint32_t values[] = {rl1On, rl1Off, rl2On, rl2Off};
+    const uint16_t addresses[][3] = {
+        {ModbusAddr_RL1_StartTime_hh, ModbusAddr_RL1_StartTime_mm, ModbusAddr_RL1_StartTime_ss},
+        {ModbusAddr_RL1_EndTime_hh, ModbusAddr_RL1_EndTime_mm, ModbusAddr_RL1_EndTime_ss},
+        {ModbusAddr_RL2_StartTime_hh, ModbusAddr_RL2_StartTime_mm, ModbusAddr_RL2_StartTime_ss},
+        {ModbusAddr_RL2_EndTime_hh, ModbusAddr_RL2_EndTime_mm, ModbusAddr_RL2_EndTime_ss}
+    };
+    for (size_t index = 0; index < 4; ++index) {
+        modbusMemory[addresses[index][0]] = values[index] / 3600UL;
+        modbusMemory[addresses[index][1]] = (values[index] % 3600UL) / 60UL;
+        modbusMemory[addresses[index][2]] = values[index] % 60UL;
+    }
     const bool saved = modbusSaveToEEPROM();
     Update_Time_From_Modbus();
     if (saved)
