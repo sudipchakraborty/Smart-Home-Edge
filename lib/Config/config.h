@@ -17,4 +17,9 @@
 #define OTA_VERSION_URL "https://github.com/sudipchakraborty/Low-Power-Timer-Module/releases/latest/download/manifest.json"
 #define OTA_CHECK_INTERVAL_MS 21600000UL
 
+// Task watchdog settings.
+#define WDT_ENABLED true
+#define WDT_TIMEOUT_SECONDS 15UL
+#define WDT_TRIGGER_PANIC true
+
 #endif // APP_CONFIG_H

@@ -8,11 +8,6 @@
 #define EEPROM_BASE_ADDR  0x0000
 #define EEPROM_MAGIC      0xA5A5
 
-// Product-specific Wi-Fi setup hotspot credentials.
-// Change these two values for each product variant.
-#define Hotspot_Name "LPTM_V2"
-#define Hotspot_password 12345678
-
 // Set to 1 only when an I2C bus scan is required during SystemTest().
 #define ENABLE_I2C_SCANNER_TEST 0
 

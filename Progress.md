@@ -60,3 +60,20 @@
 - Align V2 relay schedules with the shared HH/MM/SS map: Relay 1 `1..6` with trigger `7`, Relay 2 `8..13` with trigger `14`.
 - Preserve the shared RTC map `15..27`, output register `0`, identity registers `29..90`, reset command `91..95`, and relay status registers `96..97`.
 - Remove V2-only packed 32-bit schedule assumptions and verify both PlatformIO environments.
+
+## 2026-10-04 - Disable V2 WiFi setup hotspot server
+
+- LowPowerTimerModule_V2 hardware does not provide the mobile webpage WiFi configuration feature.
+- Removed the V2 `WiFiSetupServer` startup and loop handling that created the `192.168.4.1` setup hotspot.
+- Removed the V2 hotspot credential defines from `src/PRJ_LPTM_V2.h`.
+- Added `test/v2_no_wifi_setup_hotspot.ps1` to keep the V2 setup-hotspot path disabled.
+- Cleaned project selection so PlatformIO environments explicitly define V1 or V2, and `ProjectSelection.h` only validates the selection.
+
+## 2026-10-04 - Add V2 watchdog timer module
+
+- Added reusable `lib/WDT` watchdog wrapper around ESP32 task watchdog APIs.
+- Added watchdog defaults in `lib/Config/config.h`; no JSON configuration file is required for now.
+- LowPowerTimerModule_V2 starts the watchdog after startup/system test and feeds it once per loop.
+- Added `test/v2_wdt_integration.ps1` to verify the module/config/V2 wiring.
+- Updated the watchdog wrapper to use the ESP32 Arduino 2.x watchdog API used by this project.
+- Verified both V1 and V2 PlatformIO builds, plus the project-selection, hotspot-removal, and watchdog checks.

@@ -23,18 +23,17 @@
 #include "ClockInternet.h"
 #include "RelayTimerUI.h"
 #include "BluetoothWiFiProvisioner.h"
-#include "WiFiSetupServer.h"
 #include "DeviceID.h"
 #include "OTAManager.h"
 #include "I2CScanner.h"
 #include "RelayScheduleHmsStorage.h"
+#include "WDTManager.h"
 
 // Service addresses:
-// Wi-Fi configuration: http://192.168.4.1
-// Relay timer settings: http://192.168.4.1:8080
+// Relay timer settings: http://<saved-wifi-ip>:8080
 
 /////////////////////////////////////////////////////////////////////////////////////////
-uint8_t MY_SLAVE_ID = 1;   // change per device   1
+uint8_t MY_SLAVE_ID = 2;   // change per device   1
 RS485 rs485;
 char txBuf[255];
 uint8_t rxBuf[255];
@@ -101,9 +100,9 @@ WiFiModule wifiModule;
 ClockInternet internetClock;
 RelayTimerUI relayTimerUI(8080);
 BluetoothWiFiProvisioner bluetoothProvisioner;
-WiFiSetupServer wifiSetupServer;
 DeviceID deviceId;
 OTAManager otaManager;
+WDTManager wdt;
 bool networkServicesReady = false;
 
 extern int countValue;
@@ -120,7 +119,6 @@ void LPTM_setup_V2()
     dbg.println("system started..");
 
     deviceId.begin();
-    String productSerial = deviceId.getEfuseChipIDString();
 
     bool wifiConnected = false;
     if (!WIFI_PROV_FORCE_RESET) {
@@ -137,15 +135,6 @@ void LPTM_setup_V2()
         dbg.println("Starting Bluetooth WiFi setup");
         bluetoothProvisioner.begin(WIFI_PROV_DEVICE_NAME, WIFI_PROV_POP,
                                    WIFI_PROV_FORCE_RESET);
-    }
-
-    if (wifiSetupServer.begin(String(Hotspot_Name), String(Hotspot_password),
-                              productSerial)) {
-        dbg.println("WiFi setup hotspot: " + wifiSetupServer.accessPointName());
-        dbg.println("Factory hotspot password: " + wifiSetupServer.factoryPassword());
-        dbg.println("WiFi setup page: http://" + wifiSetupServer.accessPointIP().toString());
-    } else {
-        dbg.println("WiFi setup hotspot failed to start");
     }
 
     otaManager.begin(FIRMWARE_VERSION);
@@ -198,10 +187,17 @@ void LPTM_setup_V2()
     //  dbg.print("Time In second: ", startSec); 
 
     SystemTest();
+
+    if (wdt.begin(WDT_ENABLED, WDT_TIMEOUT_SECONDS, WDT_TRIGGER_PANIC)) {
+        dbg.println("Watchdog timer started");
+    } else {
+        dbg.println("Watchdog timer start ERROR");
+    }
 }
 //__________________________________________________________________________________________
 void LPTM_loop_V2()
 {
+    wdt.feed();
     if (!networkServicesReady && wifiModule.isConnected()) {
         networkServicesReady = true;
         internetClock.syncRtc(rtc, dbg,
@@ -213,7 +209,6 @@ void LPTM_loop_V2()
     StateMachine();
     updateRelayStatusRegisters();
     Modbus_Handler();
-    wifiSetupServer.handleClient();
     relayTimerUI.handleClient();
     otaManager.handle();
 }
