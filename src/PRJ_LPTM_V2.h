@@ -46,6 +46,10 @@
 #define ModbusAddr_RL2_EndTime_mm 12
 #define ModbusAddr_RL2_EndTime_ss 13
 #define ModbusAddr_RL2_Time_Update 14
+#define ModbusAddr_DeviceId_First 29
+#define ModbusAddr_DeviceId_Last 31
+#define ModbusAddr_DeviceName_First 32
+#define ModbusAddr_DeviceName_Last 50
 //////////////////////////
 #define Modbus_RL1 0x01  
 #define Modbus_RL2 0x02
@@ -63,6 +67,8 @@
 #define EEPROM_Addr_RL1_OffTime 4
 #define EEPROM_Addr_RL2_OnTime 8
 #define EEPROM_Addr_RL2_OffTime 12
+#define EEPROM_Addr_DeviceId 128
+#define EEPROM_Addr_DeviceName 132
 //////////////////////////
 enum FSMStates {
     IDLE,
@@ -75,6 +81,8 @@ void LPTM_setup_V2();
 void LPTM_loop_V2();
 bool modbusSaveToEEPROM(void);
 bool LoadModbusConfigFromEEPROM(void);
+bool LoadDeviceIdentityFromEEPROM(void);
+bool SaveDeviceIdentityToEEPROM(void);
 void displayModbusData(void);
 void StateMachine(void);
 void ModbusActionHandler(void);

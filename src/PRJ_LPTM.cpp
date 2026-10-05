@@ -5,6 +5,7 @@
 #include "rs485.h"
 #include "modbusASCII.h"
 #include "modbusResponseBuilder.h"
+#include "ModbusDeviceAddress.h"
 #include "memoryMap.h"
 #include "DEBUG.h"
 //////////////////////////////////
@@ -21,7 +22,6 @@
 #include "I2CScanner.h"
 #include "at24c32N.h"
 /////////////////////////////////////////////////////////////////////////////////////////
-uint8_t MY_SLAVE_ID = 1;   // change per device   1
 RS485 rs485;
 char txBuf[255];
 uint8_t rxBuf[255];
@@ -79,7 +79,7 @@ void loadIdentityDefaults()
          address <= ModbusAddr_DeviceName_Last; ++address)
     {
         const uint16_t offset = address - ModbusAddr_DeviceName_First;
-        modbusMemory[address] = defaultName[offset] ? defaultName[offset] : ' ';
+        modbusMemory[address] = offset < strlen(defaultName) ? defaultName[offset] : ' ';
     }
 }
 
@@ -116,7 +116,7 @@ void LPTM_setup()
     ModbusMemory_LoadProductIdentity();
     dbg.println("Product ID and serial number loaded into read-only Modbus registers");
     if (!LoadDeviceIdentityFromEEPROM())
-        dbg.println("Device ID/name EEPROM data invalid; defaults loaded");
+        dbg.println("Device identity EEPROM data incomplete; invalid fields use defaults");
     updateRelayStatusRegisters();
     
     delay(1000);
@@ -304,7 +304,7 @@ void Modbus_Handler()
         if (!mb.parseModbusASCII((char*)rxBuf, modbusFrame)) return;
         
         // ✅ Slave ID filtering (IMPORTANT)
-        if (modbusFrame.slaveId != MY_SLAVE_ID && modbusFrame.slaveId != 0)
+        if (modbusFrame.slaveId != ModbusDeviceAddress::read(modbusMemory) && modbusFrame.slaveId != 0)
         {
             dbg.println("Packet not for me, or Not Broadcast...ignored");
             return;
@@ -324,6 +324,7 @@ void Modbus_Handler()
         char txLen = Modbus_BuildResponse(&modbusFrame,txBuf,sizeof(txBuf));
         if (txLen > 0){
             rs485.send((uint8_t*)txBuf, txLen);
+            if (txBuf[3] == '8') { mb.PacketAvailable = false; return; }
             // dbg.print("Sent Response: ");
             // dbg.printHex((uint8_t*)txBuf, txLen);
            
@@ -401,6 +402,9 @@ void ModbusActionHandler(void)
                 case ModbusAddr_DeviceId_First + 1:
                 case ModbusAddr_DeviceId_Last:
                 case ModbusAddr_DeviceName_First ... ModbusAddr_DeviceName_Last:
+                    // Also protect direct/broadcast action handling from invalid IDs.
+                    if (!ModbusDeviceAddress::validWrite(modbusMemory, modbusFrame.address, modbusFrame.value))
+                        return;
                     modbusMemory[modbusFrame.address] = modbusFrame.value & 0x00FF;
                     if (!SaveDeviceIdentityToEEPROM())
                         dbg.println("Device ID/name EEPROM save ERROR");
@@ -618,29 +622,30 @@ bool LoadDeviceIdentityFromEEPROM(void)
     const bool idRead = eeprom.readBytes(EEPROM_Addr_DeviceId, deviceId, sizeof(deviceId));
     const bool nameRead = eeprom.readBytes(EEPROM_Addr_DeviceName, deviceName, sizeof(deviceName));
 
-    bool valid = idRead && nameRead;
-    for (uint8_t value : deviceId)
-        valid = valid && validIdentityByte(value);
-
+    const bool validId = idRead && ModbusDeviceAddress::decode(deviceId) != 0;
+    bool validName = nameRead;
     bool hasNameCharacter = false;
     for (uint8_t value : deviceName)
     {
-        valid = valid && (value == ' ' || validIdentityByte(value));
+        validName = validName && validIdentityByte(value);
         hasNameCharacter = hasNameCharacter || (value != ' ');
     }
-    valid = valid && hasNameCharacter;
+    validName = validName && hasNameCharacter;
 
-    if (!valid)
-    {
-        loadIdentityDefaults();
-        return false;
-    }
-
-    for (uint8_t i = 0; i < sizeof(deviceId); ++i)
-        modbusMemory[ModbusAddr_DeviceId_First + i] = deviceId[i];
-    for (uint8_t i = 0; i < sizeof(deviceName); ++i)
-        modbusMemory[ModbusAddr_DeviceName_First + i] = deviceName[i];
-    return true;
+    // Load defaults first, then restore each valid field independently.
+    // A damaged name must not discard an otherwise valid onsite address.
+    loadIdentityDefaults();
+    if (!validId)
+        dbg.println("Device address EEPROM invalid; default address loaded");
+    else
+        for (uint8_t i = 0; i < sizeof(deviceId); ++i)
+            modbusMemory[ModbusAddr_DeviceId_First + i] = deviceId[i];
+    if (!validName)
+        dbg.println("Device name EEPROM invalid; default name loaded");
+    else
+        for (uint8_t i = 0; i < sizeof(deviceName); ++i)
+            modbusMemory[ModbusAddr_DeviceName_First + i] = deviceName[i];
+    return validId && validName;
 }
 
 bool SaveDeviceIdentityToEEPROM(void)

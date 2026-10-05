@@ -1,5 +1,6 @@
 #include "modbusResponseBuilder.h"
 #include "memoryMap.h"
+#include "ModbusDeviceAddress.h"
 
 /* ---------------- Internal helpers ---------------- */
 
@@ -114,6 +115,9 @@ char Modbus_BuildResponse(const ModbusASCIIFrame* frame,
 
             if (ModbusMemory_IsReadOnly(frame->address))
                 return buildException(frame->slaveId, 0x06, 0x02, responseBuffer, bufferSize);
+
+            if (!ModbusDeviceAddress::validWrite(modbusMemory, frame->address, frame->value))
+                return buildException(frame->slaveId, 0x06, 0x03, responseBuffer, bufferSize);
 
             modbusMemory[frame->address] = frame->value;
 

@@ -75,5 +75,42 @@
 - Added watchdog defaults in `lib/Config/config.h`; no JSON configuration file is required for now.
 - LowPowerTimerModule_V2 starts the watchdog after startup/system test and feeds it once per loop.
 - Added `test/v2_wdt_integration.ps1` to verify the module/config/V2 wiring.
+
+## 2026-10-05 - Align V2 identity registers with V1/frontend contract
+
+- Found V2 only loaded writable Device ID registers `29..31`; Device Name `32..50`, Product ID `51..70`, and Serial No. `71..90` were not populated like V1.
+- Added V2 Device Name register definitions and EEPROM storage at byte offset `132`.
+- V2 now loads product/serial read-only registers at startup and reads/saves full Device ID/name identity data using the V1-compatible register map.
+- Added `test/v2_identity_contract.ps1` to guard the frontend-visible identity contract.
 - Updated the watchdog wrapper to use the ESP32 Arduino 2.x watchdog API used by this project.
 - Verified both V1 and V2 PlatformIO builds, plus the project-selection, hotspot-removal, and watchdog checks.
+
+## 2026-10-04 - Persist V2 Device ID registers
+
+- Confirmed V2 had no Device ID register mapping or EEPROM load/write handling, although V1 uses Modbus registers `29..31` and EEPROM byte offset `128`.
+- Added the same V2 Device ID holding registers (`29..31`) and EEPROM offset (`128`) as the shared device identity mapping.
+- V2 startup now loads the three printable ASCII ID characters from EEPROM into `modbusMemory`; if the EEPROM read fails or data is invalid, the map uses default ID `001`.
+- Modbus function `06` writes to registers `29..31` now persist the complete three-character ID. Invalid characters or EEPROM write errors restore the previous in-memory character and log the failure.
+- Function `03` continues to return those values from `modbusMemory`; the three-character Device ID is distinct from the frame-level Modbus slave address, which remains unchanged.
+- Added `test/v2_device_id_eeprom.ps1` to check register mapping, EEPROM load/save wiring, and the Modbus memory read path.
+- Verification passed: the Device ID, project-selection, hotspot-removal, and watchdog checks, plus PlatformIO builds for both V2 and V1. EEPROM readback on hardware remains unverified.
+
+## 2026-10-05 - Planned register-backed Modbus address (V1 and V2)
+
+- Registers 29..31 (three ASCII digits) are the single source of the active Modbus address; remove independent MY_SLAVE_ID variables.
+- Restore the address from EEPROM offset 128 at startup. Validate 001..247 independently of the device name; use 001 (V1) or 002 (V2) when invalid/unavailable.
+- Add shared address decoding/write validation, use it for packet filtering, reject invalid address writes without changing memory/EEPROM, and preserve the old address in the write acknowledgement.
+- Add regression checks, build both environments sequentially, and record outcomes here.
+- Onsite writes take effect immediately. A client must use the current decoded address for every following write/read; existing backend identity updates still target the original unitId and require a separate follow-up change.
+
+### Completed and verified
+
+- V1/V2 packet filtering now decodes the address directly from ASCII registers 29..31; no independent MY_SLAVE_ID remains.
+- Startup restores valid EEPROM address bytes independently of name validity. Fallback addresses are V1=001 and V2=002; existing saved 001 on V2 is preserved and now means address 1.
+- Function 06 validates the candidate full ID before changing memory. Invalid/nondecimal/zero/>247 IDs return illegal-data-value and cannot reach EEPROM persistence. Accepted writes echo the request address and following packets use the updated register value.
+- Existing EEPROM save handlers persist accepted onsite ID/name writes. Hardware EEPROM write/readback and power-cycle verification remain pending; firmware has not been uploaded.
+- Fixed default-name padding to avoid reading beyond the BATHROOM string during startup fallback.
+- Host behavior test: test/run_register_device_address.ps1 passed for all 1000 ASCII combinations, EEPROM byte decoding, old-address acknowledgement, rejection without mutation, and new-address register readback using the actual response builder.
+- Structural checks passed: register_device_address.ps1, v2_device_id_eeprom.ps1, v2_identity_contract.ps1. git diff --check passed.
+- Final sequential PlatformIO builds passed: esp32doit-devkit-v1 and lptm-v2.
+- Client limitation: address changes take effect after each accepted single-register write. For IDs requiring multiple digit changes, send subsequent requests to each resulting intermediate address and keep intermediate IDs within 001..247. The current backend update route does not yet follow changed addresses; do not treat its Update device flow as verified for address changes.
